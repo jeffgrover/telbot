@@ -1,2 +1,26 @@
-# Ignore all .txt files
-*.txt
+# Python cache files
+__pycache__/
+*/__pycache__/*
+*.py[cod]
+
+# Test cache
+.pytest_cache/
+
+# Database file
+bot_database.sqlite
+
+# Logs
+*.log
+
+# Environment
+.env
+venv/
+.venv/
+
+# IDE files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
