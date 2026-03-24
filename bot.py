@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Telegram Wellness Check Bot
+Telegram Ping Bot
 
-This bot performs wellness checks via Telegram:
-1. Asks three questions on first contact (preferred check time, response window, notification contact)
-2. Sends daily prompts at preferred time
+This bot performs friendly check-ins via Telegram:
+1. Asks three questions on first contact (preferred ping time, response window, buddy contact)
+2. Sends daily pings at preferred time
 3. Waits for user response within specified hours
-4. Notifies designated contact if no response received
+4. Notifies designated buddy if no response received
 5. Stores all preferences in SQLite database
 """
 
 import os
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 import logging
-from database import init_db, get_user_preferences, save_user_preferences, record_wellness_check, has_responded_today, get_all_users_with_preferences
-from time_utils import parse_time_input, format_time_for_display, calculate_deadline_time
+from database import init_db, get_user_preferences, save_user_preferences, record_ping, has_responded_today, get_all_users_with_ping_preferences
+from time_utils import parse_time_input, format_time_for_display, calculate_ping_deadline_time
 
 # Configure logging
 logging.basicConfig(
@@ -29,18 +29,18 @@ STATE_ASKED_TIME = 1
 STATE_ASKED_HOURS = 2
 STATE_ASKED_NOTIFY = 3
 
-async def send_wellness_prompt(application, context):
+async def send_ping(application, context):
     """
-    Send daily wellness prompts to all users at their preferred time.
-    Also checks for non-responses and notifies emergency contacts.
+    Send daily pings to all users at their preferred time.
+    Also checks for non-responses and notifies buddy contacts.
     """
     from datetime import datetime
     current_time = datetime.now()
     hour = current_time.hour
     minute = current_time.minute
     
-    # Get all users with preferences
-    users = get_all_users_with_preferences()
+    # Get all users with ping preferences
+    users = get_all_users_with_ping_preferences()
     if not users:
         logger.info("No users to send wellness prompts to")
         return
@@ -66,48 +66,48 @@ async def send_wellness_prompt(application, context):
                     "Reply with anything (e.g., 'I'm okay', 'Good', ✅) to confirm."
                 )
                 
-                # Record that prompt was sent
-                record_wellness_check(user_id, current_time.date().isoformat(), prompt_sent=current_time)
+                # Record that ping was sent
+                record_ping(user_id, current_time.date().isoformat(), ping_sent=current_time)
                 
             except Exception as e:
                 logger.error(f"Failed to send wellness prompt to user {user_id}: {e}")
         
         # Check if user hasn't responded and it's time to notify emergency contact
         if notify_user:
-            # Calculate deadline time
-            deadline_time = calculate_deadline_time(current_time, response_hours)
+            # Calculate ping deadline time
+            deadline_time = calculate_ping_deadline_time(pref_hour, pref_minute, hours_later)
             
             # If current time is past deadline and prompt was sent today
             if current_time > deadline_time:
-                record = get_todays_wellness_check(user_id)
+                record = get_todays_ping(user_id)
                 if record and not record[2]:  # response_received is None
                     logger.info(f"User {user_id} ({username}) did not respond. Notifying emergency contact {notify_user}")
                     
                     try:
                         await application.bot.send_message(
                             chat_id=notify_user,
-                            text=f"⚠️ Alert: {username} has not responded to their wellness check.\n\n"
-                            f"The prompt was sent at {preferred_time} and they had {response_hours} hours to respond.\n\n"
+                            text=f"⚠️ Alert: {username} has not responded to their ping.\n\n"
+                            f"The ping was sent at {preferred_time} and they had {response_hours} hours to respond.\n\n"
                             "Please check in with them."
                         )
                         
-                        # Record that contact was notified
-                        record_wellness_check(user_id, current_time.date().isoformat(), 
-                                           prompt_sent=record[1], 
-                                           response_received=record[2],
-                                           notified_contact=current_time)
+                        # Record that buddy was notified
+                        record_ping(user_id, current_time.date().isoformat(), 
+                                   ping_sent=record[1], 
+                                   response_received=record[2],
+                                   buddy_notified=current_time)
                     except Exception as e:
                         logger.error(f"Failed to notify emergency contact for user {user_id}: {e}")
 
 async def setup_job_scheduler(application):
     """
-    Set up a job scheduler to send wellness prompts every minute.
-    This allows us to check if it's time to send prompts based on users' preferred times.
+    Set up a job scheduler to send pings every minute.
+    This allows us to check if it's time to send pings based on users' preferred times.
     """
     from datetime import timedelta
     
     # Run the check every minute
-    application.job_queue.run_repeating(send_wellness_prompt, interval=timedelta(minutes=1), 
+    application.job_queue.run_repeating(send_ping, interval=timedelta(minutes=1), 
                                          application=application)
 
 # Dictionaries to track user state and preferences
@@ -134,8 +134,8 @@ async def handle_message(update, context):
         # New user - ask first question about wellness check time
         time_question = (
             f"Hi {username}! 👋\n\n"
-            "Welcome to the Telegram Wellness Check Bot! I'll ask you three questions to set up your check.\n\n"
-            "First, what time should I send your daily wellness prompt?\n"
+            "Welcome to the Telegram Ping Bot! I'll ask you three questions to set up your ping.\n\n"
+            "First, what time should I send your daily ping?\n"
             "You can format this in several ways:\n"
             "- 10 AM\n"
             "- 10:30 PM\n"
@@ -168,7 +168,7 @@ async def handle_message(update, context):
             }
             
             hours_question = (
-                f"✅ Got it! I'll send your wellness prompt at {format_time_for_display(*parsed_time)}.\n\n"
+                f"✅ Got it! I'll send your ping at {format_time_for_display(*parsed_time)}.\n\n"
                 "Second question: How many hours should I wait for your response?\n"
                 "Please enter a number between 1 and 12 (e.g., 3, 6, 12):"
             )
@@ -195,10 +195,10 @@ async def handle_message(update, context):
         
         # Ask for notification contact
         notify_question = (
-            f"✅ Got it! I'll send your wellness check prompt at {format_time_for_display(hour, minute)}\n"
+            f"✅ Got it! I'll send your ping at {format_time_for_display(hour, minute)}\n"
             f"and wait {hours_later} hours for your response.\n\n"
             "Third question: Who should I notify if you don't respond?\n"
-            "Please enter the Telegram username of your emergency contact\n"
+            "Please enter the Telegram username of your buddy contact\n"
             "(with or without @)\n"
             "Example: friend or @friend"
         )
@@ -209,7 +209,7 @@ async def handle_message(update, context):
         user_preferences[user_id]['hours_later'] = hours_later
     
     elif current_state == STATE_ASKED_NOTIFY:
-        # Parse the notification username
+        # Parse the buddy contact username
         notify_username = text.strip()
         if not notify_username:
             error_msg = "❌ Please enter a valid Telegram username"
@@ -231,17 +231,17 @@ async def handle_message(update, context):
         
         # Record that user has responded today (pre-emptive response)
         from datetime import datetime
-        record_wellness_check(user_id, datetime.now().date().isoformat(), response_received=datetime.now())
+        record_ping(user_id, datetime.now().date().isoformat(), response_received=datetime.now())
         
         # Success message
         success_msg = (
-            f"✅ Wellness check configured!\n\n"
-            f"Daily prompt time: {format_time_for_display(hour, minute)}\n"
+            f"✅ Ping configured!\n\n"
+            f"Daily ping time: {format_time_for_display(hour, minute)}\n"
             f"Response window: {hours_later} hours\n"
-            f"Emergency contact: {notify_username}\n\n"
+            f"Buddy contact: {notify_username}\n\n"
             f"I'll send a message to {notify_username} asking for consent.\n"
             "If they respond with affirmation (yeah, yes, okay), their username will be saved.\n\n"
-            "Your wellness check is now active! I'll prompt you daily at " + format_time_for_display(hour, minute)
+            "Your ping is now active! I'll ping you daily at " + format_time_for_display(hour, minute)
         )
         await update.message.reply_text(success_msg)
         
@@ -258,27 +258,27 @@ async def handle_message(update, context):
             if already_responded:
                 response = (
                     f"✅ Got it! You've already confirmed you're okay today.\n"
-                    f"Your wellness check is active:\n"
-                    f"- Daily prompt time: {preferred_time}\n"
+                    f"Your ping is active:\n"
+                    f"- Daily ping time: {preferred_time}\n"
                     f"- Response window: {response_hours} hours\n"
                 )
                 if notify_user:
-                    response += f"- Emergency contact: @{notify_user}\n"
+                    response += f"- Buddy contact: {notify_user}\n"
                 await update.message.reply_text(response)
             else:
                 greeting = (
                     f"Hi {username}! 👋\n\n"
-                    f"Welcome back! Your wellness check is active:\n"
-                    f"- Daily prompt time: {preferred_time}\n"
+                    f"Welcome back! Your ping is active:\n"
+                    f"- Daily ping time: {preferred_time}\n"
                     f"- Response window: {response_hours} hours\n"
                 )
                 if notify_user:
-                    greeting += f"- Emergency contact: {notify_user}\n"
-                greeting += "\nI'll send your daily wellness prompt at " + preferred_time
+                    greeting += f"- Buddy contact: {notify_user}\n"
+                greeting += "\nI'll send your daily ping at " + preferred_time
                 await update.message.reply_text(greeting)
         else:
             # Fallback for users who somehow don't have preferences
-            response = f"✅ Got it! I'll note that you're okay today. Your wellness check is active."
+            response = f"✅ Got it! I'll note that you're okay today. Your ping is active."
             await update.message.reply_text(response)
 
 def main():

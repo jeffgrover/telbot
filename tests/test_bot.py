@@ -10,14 +10,14 @@ from database import get_all_users_with_preferences, init_db
 from time_utils import calculate_deadline_time
 from datetime import datetime
 
-def test_get_all_users_with_preferences():
-    """Test that we can retrieve users with preferences."""
-    print("Testing get_all_users_with_preferences()...")
+def test_get_all_users_with_ping_preferences():
+    """Test that we can retrieve users with ping preferences."""
+    print("Testing get_all_users_with_ping_preferences()...")
     
     # Initialize database if it doesn't exist
     init_db()
     
-    users = get_all_users_with_preferences()
+    users = get_all_users_with_ping_preferences()
     print(f"Found {len(users)} users with preferences")
     for user in users:
         print(f"  User: {user[1]} (ID: {user[0]})")
@@ -47,7 +47,7 @@ def test_import_bot_module():
     print("Testing bot.py import...")
     
     try:
-        from bot import send_wellness_prompt, setup_job_scheduler
+        from bot import send_ping, setup_job_scheduler
         print("✅ bot.py imports successfully")
         return True
     except Exception as e:

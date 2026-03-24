@@ -107,9 +107,9 @@ def format_time_for_display(hour, minute):
     else:
         return f"{display_hour:d}:{minute:02d} {period}"
 
-def calculate_deadline_time(preferred_hour, preferred_minute, hours_later):
+def calculate_ping_deadline_time(preferred_hour, preferred_minute, hours_later):
     """
-    Calculate what time it will be X hours later.
+    Calculate what time it will be X hours after a ping.
     Returns formatted time string.
     """
     now = datetime.now()

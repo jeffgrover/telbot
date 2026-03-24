@@ -62,16 +62,16 @@ def save_user_preferences(user_id, username, preferred_time, response_hours, not
                 [user_id, username, preferred_time, response_hours, notify_user]
             )
 
-def record_wellness_check(user_id, check_date, prompt_sent=None, response_received=None, notified_contact=None):
+def record_ping(user_id, ping_date, ping_sent=None, response_received=None, buddy_notified=None):
     """
-    Record a wellness check event.
+    Record a ping event.
     
     Parameters:
         user_id: Telegram user ID
-        check_date: Date of the check (YYYY-MM-DD)
-        prompt_sent: When the prompt was sent (datetime)
+        ping_date: Date of the ping (YYYY-MM-DD)
+        ping_sent: When the ping was sent (datetime)
         response_received: When user responded (datetime)
-        notified_contact: When emergency contact was notified (datetime)
+        buddy_notified: When buddy contact was notified (datetime)
     """
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
@@ -82,12 +82,12 @@ def record_wellness_check(user_id, check_date, prompt_sent=None, response_receiv
             [user_id, check_date, prompt_sent, response_received, notified_contact]
         )
 
-def get_todays_wellness_check(user_id):
+def get_todays_ping(user_id):
     """
-    Get today's wellness check record for a user.
+    Get today's ping record for a user.
     
     Returns:
-        Tuple of (check_date, prompt_sent, response_received, notified_contact) or None if no record
+        Tuple of (ping_date, ping_sent, response_received, buddy_notified) or None if no record
     """
     from datetime import date
     today = date.today().isoformat()
@@ -107,15 +107,15 @@ def has_responded_today(user_id):
     Returns:
         True if user has responded today, False otherwise
     """
-    record = get_todays_wellness_check(user_id)
+    record = get_todays_ping(user_id)
     return record is not None and record[2] is not None
 
-def get_all_users_with_preferences():
+def get_all_users_with_ping_preferences():
     """
-    Get all users with their preferences.
+    Get all users with their ping preferences.
     
     Returns:
-        List of tuples: (user_id, username, preferred_time, response_hours, notify_user)
+        List of tuples: (user_id, username, preferred_ping_time, response_hours, buddy_user)
     """
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
