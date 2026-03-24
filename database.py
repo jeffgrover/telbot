@@ -109,3 +109,16 @@ def has_responded_today(user_id):
     """
     record = get_todays_wellness_check(user_id)
     return record is not None and record[2] is not None
+
+def get_all_users_with_preferences():
+    """
+    Get all users with their preferences.
+    
+    Returns:
+        List of tuples: (user_id, username, preferred_time, response_hours, notify_user)
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "SELECT user_id, username, preferred_time, response_hours, notify_user FROM users"
+        )
+        return cursor.fetchall()

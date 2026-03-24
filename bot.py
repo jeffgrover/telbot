@@ -11,9 +11,9 @@ This bot performs wellness checks via Telegram:
 """
 
 import os
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 import logging
-from database import init_db, get_user_preferences, save_user_preferences, record_wellness_check, has_responded_today
+from database import init_db, get_user_preferences, save_user_preferences, record_wellness_check, has_responded_today, get_all_users_with_preferences
 from time_utils import parse_time_input, format_time_for_display, calculate_deadline_time
 
 # Configure logging
@@ -28,6 +28,87 @@ STATE_NONE = 0
 STATE_ASKED_TIME = 1
 STATE_ASKED_HOURS = 2
 STATE_ASKED_NOTIFY = 3
+
+async def send_wellness_prompt(application, context):
+    """
+    Send daily wellness prompts to all users at their preferred time.
+    Also checks for non-responses and notifies emergency contacts.
+    """
+    from datetime import datetime
+    current_time = datetime.now()
+    hour = current_time.hour
+    minute = current_time.minute
+    
+    # Get all users with preferences
+    users = get_all_users_with_preferences()
+    if not users:
+        logger.info("No users to send wellness prompts to")
+        return
+    
+    for user_id, username, preferred_time, response_hours, notify_user in users:
+        # Parse preferred time
+        try:
+            pref_hour, pref_minute = map(int, preferred_time.split(':'))
+        except ValueError:
+            logger.warning(f"Could not parse preferred time for user {user_id}")
+            continue
+        
+        # Check if it's time to send prompt
+        if hour == pref_hour and minute == pref_minute:
+            logger.info(f"Sending wellness prompt to user {user_id} ({username})")
+            
+            try:
+                # Send message to user
+                await application.bot.send_message(
+                    chat_id=user_id,
+                    text=f"Hi {username}! 👋\n\n"
+                    "How are you doing today? Please respond within the next " + str(response_hours) + " hours.\n\n"
+                    "Reply with anything (e.g., 'I'm okay', 'Good', ✅) to confirm."
+                )
+                
+                # Record that prompt was sent
+                record_wellness_check(user_id, current_time.date().isoformat(), prompt_sent=current_time)
+                
+            except Exception as e:
+                logger.error(f"Failed to send wellness prompt to user {user_id}: {e}")
+        
+        # Check if user hasn't responded and it's time to notify emergency contact
+        if notify_user:
+            # Calculate deadline time
+            deadline_time = calculate_deadline_time(current_time, response_hours)
+            
+            # If current time is past deadline and prompt was sent today
+            if current_time > deadline_time:
+                record = get_todays_wellness_check(user_id)
+                if record and not record[2]:  # response_received is None
+                    logger.info(f"User {user_id} ({username}) did not respond. Notifying emergency contact {notify_user}")
+                    
+                    try:
+                        await application.bot.send_message(
+                            chat_id=notify_user,
+                            text=f"⚠️ Alert: {username} has not responded to their wellness check.\n\n"
+                            f"The prompt was sent at {preferred_time} and they had {response_hours} hours to respond.\n\n"
+                            "Please check in with them."
+                        )
+                        
+                        # Record that contact was notified
+                        record_wellness_check(user_id, current_time.date().isoformat(), 
+                                           prompt_sent=record[1], 
+                                           response_received=record[2],
+                                           notified_contact=current_time)
+                    except Exception as e:
+                        logger.error(f"Failed to notify emergency contact for user {user_id}: {e}")
+
+async def setup_job_scheduler(application):
+    """
+    Set up a job scheduler to send wellness prompts every minute.
+    This allows us to check if it's time to send prompts based on users' preferred times.
+    """
+    from datetime import timedelta
+    
+    # Run the check every minute
+    application.job_queue.run_repeating(send_wellness_prompt, interval=timedelta(minutes=1), 
+                                         application=application)
 
 # Dictionaries to track user state and preferences
 user_state = {}  # Tracks which question the user is answering
@@ -157,8 +238,8 @@ async def handle_message(update, context):
             f"✅ Wellness check configured!\n\n"
             f"Daily prompt time: {format_time_for_display(hour, minute)}\n"
             f"Response window: {hours_later} hours\n"
-            f"Emergency contact: @{notify_username}\n\n"
-            "I'll send a message to @{notify_username} asking for consent.\n"
+            f"Emergency contact: {notify_username}\n\n"
+            f"I'll send a message to {notify_username} asking for consent.\n"
             "If they respond with affirmation (yeah, yes, okay), their username will be saved.\n\n"
             "Your wellness check is now active! I'll prompt you daily at " + format_time_for_display(hour, minute)
         )
@@ -192,7 +273,7 @@ async def handle_message(update, context):
                     f"- Response window: {response_hours} hours\n"
                 )
                 if notify_user:
-                    greeting += f"- Emergency contact: @{notify_user}\n"
+                    greeting += f"- Emergency contact: {notify_user}\n"
                 greeting += "\nI'll send your daily wellness prompt at " + preferred_time
                 await update.message.reply_text(greeting)
         else:
@@ -212,6 +293,9 @@ def main():
     application = Application.builder().token(token).build()
     
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Set up job scheduler for sending wellness prompts
+    setup_job_scheduler(application)
     
     logger.info('Bot started and running...')
     application.run_polling()
