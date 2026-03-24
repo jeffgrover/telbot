@@ -1,13 +1,13 @@
-# Telegram Wellness Check Bot
+# Telegram Ping Bot
 
-A Telegram bot that performs wellness checks by sending daily prompts and alerting emergency contacts if no response is received.
+A Telegram bot that performs friendly check-ins by sending daily pings and alerting buddy contacts if no response is received.
 
 ## Setup Instructions
 
 ### 1. Create a Telegram Bot
 - Open Telegram and search for @BotFather
 - Send `/newbot` command to create a new bot
-- Follow the instructions to name your bot (e.g., "WellnessCheckBot")
+- Follow the instructions to name your bot (e.g., "PingBot")
 - BotFather will give you a token (save this for later)
 
 ### 2. Install Dependencies
@@ -24,26 +24,26 @@ export TELEGRAM_BOT_TOKEN='your_bot_token_here'
 python bot.py
 ```
 
-The bot will run continuously and perform wellness checks.
+The bot will run continuously and send friendly check-ins.
 
 ## How It Works
 
 ### User Setup Flow (First Contact)
-1. **Daily Prompt Time**: User specifies when they want daily wellness prompts (e.g., 9 PM)
+1. **Daily Ping Time**: User specifies when they want daily pings (e.g., 9 PM)
 2. **Response Window**: User sets how many hours to wait for response (1-12 hours)
-3. **Emergency Contact**: User designates who to notify if no response
+3. **Buddy Contact**: User designates who to notify if no response
 
 ### Daily Operation
-1. At specified time, bot sends wellness prompt: "Are you okay?"
+1. At specified time, bot sends friendly ping: "How are you doing today?"
 2. If user responds within window, all is good
-3. If no response, bot alerts emergency contact
+3. If no response, bot alerts buddy contact
 
 ### Database Storage
 All preferences are stored in SQLite database:
 - User ID
-- Preferred prompt time
+- Preferred ping time
 - Response window (hours)
-- Emergency contact username
+- Buddy contact username
 
 ## Files Overview
 
@@ -53,18 +53,24 @@ Main bot logic with:
 - State management for question progress
 - Time parsing and validation
 - Database integration
+- Daily ping sending
+- Buddy notification logic
 
 ### `database.py`
 SQLite operations:
 - `init_db()`: Creates users table
 - `get_user_preferences(user_id)`: Retrieves settings
 - `save_user_preferences(...)`: Saves/update settings
+- `record_ping(...)`: Records ping events
+- `get_todays_ping(user_id)`: Gets today's ping record
+- `has_responded_today(user_id)`: Checks response status
+- `get_all_users_with_ping_preferences()`: Gets all users with preferences
 
 ### `time_utils.py`
 Time handling utilities:
 - Flexible time format parsing (10 AM, 2 PM, 22:00, etc.)
 - Time formatting for display
-- Deadline calculation for emergency notifications
+- Ping deadline calculation
 
 ## Stopping the Bot
 Press Ctrl+C in the terminal where it's running.
@@ -78,84 +84,75 @@ The bot accepts multiple time formats:
 - Lowercase variants: `9am`, `11pm`
 
 ### Input Validation
-- **Prompt Time**: Validates flexible formats, re-prompts if invalid
+- **Ping Time**: Validates flexible formats, re-prompts if invalid
 - **Response Window**: Must be integer between 1-12 hours
-- **Emergency Contact**: Validates non-empty username
+- **Buddy Contact**: Validates non-empty username
 
 ### State Management
 Four states track setup progress:
 - `STATE_NONE`: No questions asked
-- `STATE_ASKED_TIME`: Waiting for prompt time
+- `STATE_ASKED_TIME`: Waiting for ping time
 - `STATE_ASKED_HOURS`: Waiting for response window
-- `STATE_ASKED_NOTIFY`: Waiting for emergency contact
+- `STATE_ASKED_NOTIFY`: Waiting for buddy contact
+
 ---
 
 ## Example User Interaction
 
 ```
 User: /start
-Bot: Welcome to the Telegram Wellness Check Bot! I'll ask you three questions.
-    First, what time should I send your daily wellness prompt? (10 AM, 2 PM, etc.)
+Bot: Welcome to the Telegram Ping Bot! I'll ask you three questions.
+    First, what time should I send your daily ping? (10 AM, 2 PM, etc.)
 
 User: 9pm
-Bot: ✅ Got it! I'll send your wellness prompt at 9 PM.
+Bot: ✅ Got it! I'll send your ping at 9 PM.
     Second question: How many hours should I wait for your response? (1-12)
 
 User: 3
-Bot: ✅ Got it! I'll send your wellness prompt at 9 PM and wait 3 hours for response.
+Bot: ✅ Got it! I'll send your ping at 9 PM and wait 3 hours for response.
     Third question: Who should I notify if you don't respond?
 
 User: @friend
-Bot: ✅ Wellness check configured!
-    Daily prompt time: 9 PM
+Bot: ✅ Ping configured!
+    Daily ping time: 9 PM
     Response window: 3 hours
-    Emergency contact: @friend
+    Buddy contact: @friend
     
     I'll send a message to @friend asking for consent.
     If they respond with affirmation (yeah, yes, okay), their username will be saved.
-    Your wellness check is now active! I'll prompt you daily at 9 PM
+    Your ping is now active! I'll ping you daily at 9 PM
 
 Later...
 User: Hello!
-Bot: Welcome back! Your wellness check is active:
-    - Daily prompt time: 9 PM
+Bot: Welcome back! Your ping is active:
+    - Daily ping time: 9 PM
     - Response window: 3 hours
-    - Emergency contact: @friend
+    - Buddy contact: @friend
     
-    I'll send your daily wellness prompt at 9 PM
+    I'll send your daily ping at 9 PM
 ```
-
----
-
-## Future Enhancements
-- [ ] Automatic daily prompt sending (requires job queue)
-- [ ] Actual emergency notification logic
-- [ ] Response tracking and timeout handling
-- [ ] Multiple emergency contacts support
-- [ ] Configurable prompt message content
-- [ ] Notifications for low battery or offline status
 
 ---
 
 ## Response Tracking and Pre-emptive Responses
 
 ### How Responses Are Tracked
-The bot maintains a permanent history of wellness checks in the `wellness_checks` table:
-- **check_date**: Date of the check (YYYY-MM-DD)
-- **prompt_sent**: When the daily prompt was sent
+The bot maintains a permanent history of pings in the `wellness_checks` table:
+- **ping_date**: Date of the ping (YYYY-MM-DD)
+- **ping_sent**: When the daily ping was sent
 - **response_received**: When user responded
-- **notified_contact**: When emergency contact was alerted (if applicable)
+- **buddy_notified**: When buddy contact was alerted (if applicable)
 
 ### Pre-emptive Responses
-If a user messages the bot before their scheduled prompt time, it counts as their response for that day:
+If a user messages the bot before their scheduled ping time, it counts as their response for that day:
 
 ```
 User: Hi there!
 Bot: ✅ Got it! You've already confirmed you're okay today.
-    Your wellness check is active:
-    - Daily prompt time: 9 PM
+    Your ping is active:
+    - Daily ping time: 9 PM
     - Response window: 3 hours
-    - Emergency contact: @friend
+    - Buddy contact: @friend
 ```
 
 ### Duplicate Response Handling
@@ -164,20 +161,20 @@ If a user responds multiple times in the same day:
 ```
 User: Just checking in again!
 Bot: ✅ Got it! You've already confirmed you're okay today.
-    Your wellness check is active:
-    - Daily prompt time: 9 PM
+    Your ping is active:
+    - Daily ping time: 9 PM
     - Response window: 3 hours
-    - Emergency contact: @friend
+    - Buddy contact: @friend
 ```
 
-The bot acknowledges the response but doesn't send another prompt that day.
+The bot acknowledges the response but doesn't send another ping that day.
 
-### Daily Check Flow
+### Daily Ping Flow
 1. **Morning**: User messages bot → Pre-emptive response recorded
-2. **Scheduled Time**: Bot tries to send prompt → Sees response already recorded → Skips prompt
+2. **Scheduled Time**: Bot tries to send ping → Sees response already recorded → Skips ping
 3. **Evening**: User messages again → Another acknowledgment with "already responded" message
 
-### Database Schema for Wellness Checks
+### Database Schema for Pings
 ```sql
 CREATE TABLE wellness_checks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,9 +195,9 @@ if has_responded_today(user_id):
     print("User already responded today")
 
 # Record a response
-from database import record_wellness_check
+from database import record_ping
 from datetime import datetime
-record_wellness_check(user_id, datetime.now().date(), response_received=datetime.now())
+record_ping(user_id, datetime.now().date(), response_received=datetime.now())
 ```
 
 ---
@@ -230,13 +227,13 @@ pytest --cov=database --cov=time_utils
 ```
 
 ### Test Coverage
-- **43 tests** covering all major functionality
+- **43+ tests** covering all major functionality
 - **98%+ pass rate** on all test runs
 - Tests cover:
-  - Database operations (CRUD for preferences and wellness checks)
+  - Database operations (CRUD for preferences and pings)
   - Time parsing with multiple formats
   - Time formatting for display
-  - Deadline calculation
+  - Ping deadline calculation
   - Edge cases and error conditions
   - Integration scenarios
 
@@ -249,7 +246,7 @@ collecting ... collected 43 items
 
 tests/test_database.py::TestDatabaseInitialization::test_init_db_creates_tables PASSED [  2%]
 tests/test_database.py::TestUserPreferences::test_save_and_get_preferences PASSED [  4%]
-tests/test_time_utils.py::TestTimeParsing::test_parse_time_input[10 AM-expected0] PASSED [ 30%]
+tests/test_time_utils.py::TestTimeParsing::test_parse_time_input[10 AM-expected0] PASSED [30%]
 ...
 tests/test_time_utils.py::TestEdgeCases::test_max_hour PASSED            [100%]
 ========================= 43 passed, 5 warnings in 0.11s =========================
@@ -262,13 +259,13 @@ tests/test_time_utils.py::TestEdgeCases::test_max_hour PASSED            [100%]
 ### Database Tests (`tests/test_database.py`)
 - `TestDatabaseInitialization`: Tests table creation
 - `TestUserPreferences`: Tests CRUD operations for user preferences
-- `TestWellnessCheckTracking`: Tests wellness check recording and retrieval
+- `TestPingTracking`: Tests ping recording and retrieval
 - `TestIntegration`: Tests complete workflows
 
 ### Time Utilities Tests (`tests/test_time_utils.py`)
 - `TestTimeParsing`: Tests parsing various time formats
 - `TestTimeFormatting`: Tests formatting for display
-- `TestDeadlineCalculation`: Tests deadline calculation logic
+- `TestDeadlineCalculation`: Tests ping deadline calculation logic
 - `TestEdgeCases`: Tests boundary conditions
 
 ---
@@ -295,116 +292,15 @@ jobs:
 ```
 
 This will automatically run tests on every push and pull request.
-# Testing Implementation Summary
 
-## Overview
-Successfully implemented comprehensive unit tests for the Telegram Wellness Check Bot using pytest.
+---
 
-## Test Files Created
-
-### `tests/test_database.py`
-- **428 lines** of test code
-- **13 test methods** organized into 4 test classes
-- Tests database initialization, CRUD operations, wellness check tracking, and integration scenarios
-
-### `tests/test_time_utils.py`
-- **396 lines** of test code
-- **15 test methods** organized into 4 test classes
-- Tests time parsing, formatting, deadline calculation, and edge cases
-
-## Test Results
-```
-============================= test session starts =============================
-platform linux -- Python 3.12.6, pytest-8.4.1, pluggy-1.6.0 -- ...
-collecting ... collected 43 items
-
-tests/test_database.py::TestDatabaseInitialization::test_init_db_creates_tables PASSED [  2%]
-tests/test_database.py::TestUserPreferences::test_save_and_get_preferences PASSED [  4%]
-tests/test_time_utils.py::TestTimeParsing::test_parse_time_input[10 AM-expected0] PASSED [ 30%]
-...
-tests/test_time_utils.py::TestEdgeCases::test_max_hour PASSED            [100%]
-========================= 43 passed, 5 warnings in 0.12s =========================
-```
-
-## Key Test Features
-
-### Database Tests
-✅ Tests table creation with proper schema
-✅ Tests saving and retrieving user preferences
-✅ Tests updating existing preferences
-✅ Tests getting non-existent users
-✅ Tests recording wellness checks with various states
-✅ Tests retrieving today's check
-✅ Tests checking if user responded today
-✅ Tests complete workflow integration
-
-### Time Utilities Tests
-✅ Tests parsing 12-hour formats (AM/PM)
-✅ Tests parsing 24-hour formats
-✅ Tests parsing with and without minutes
-✅ Tests case-insensitive input
-✅ Tests formatting for display
-✅ Tests deadline calculation across day boundaries
-✅ Tests edge cases (midnight, noon, hour 23)
-✅ Tests invalid format handling
-✅ Tests validation of hour ranges (0-23)
-
-## Test Design Principles
-
-### 1. Isolation
-- Each test is independent
-- Fixtures clean up before/after tests
-- No shared state between tests
-
-### 2. Readability
-- Descriptive test method names
-- Clear assertions with helpful error messages
-- Organized by functionality
-
-### 3. Comprehensive Coverage
-- Happy paths tested
-- Edge cases covered
-- Error conditions verified
-- Integration scenarios included
-
-### 4. Maintainability
-- Follows Python testing conventions
-- Uses pytest fixtures for setup/teardown
-- Parametrized tests for similar scenarios
-
-## How to Run Tests
-
-```bash
-# Install pytest
-pip install pytest
-
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/test_database.py
-
-# Run with verbose output
-pytest -v
-
-# Run specific test class
-pytest tests/test_database.py::TestUserPreferences
-
-# Run specific test method
-pytest tests/test_database.py::TestUserPreferences::test_save_and_get_preferences
-```
-
-## Test Driven Development Benefits
-
-1. **Quality Assurance**: Automated tests ensure code works correctly
-2. **Regression Prevention**: Tests catch bugs when refactoring
-3. **Documentation**: Tests serve as executable examples
-4. **CI Integration**: Easy to add to GitHub Actions
-5. **Confidence**: Green tests indicate system is working
-
-## Future Test Enhancements
-- [ ] Add mock tests for Telegram bot interactions
-- [ ] Test emergency notification logic
-- [ ] Test prompt sending schedule
-- [ ] Add performance tests for large datasets
-- [ ] Implement property-based testing
+## Future Enhancements
+- [x] Automatic daily ping sending (job queue implemented)
+- [x] Actual buddy notification logic (implemented)
+- [x] Response tracking and timeout handling (implemented)
+- [ ] Multiple buddy contacts support
+- [ ] Configurable ping message content
+- [ ] Notifications for low battery or offline status
+- [ ] Weekly/monthly summary reports
+- [ ] Customizable ping frequencies (multiple times per day)
