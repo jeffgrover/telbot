@@ -75,7 +75,7 @@ async def send_ping(application, context):
         # Check if user hasn't responded and it's time to notify emergency contact
         if notify_user:
             # Calculate ping deadline time
-            deadline_time = calculate_ping_deadline_time(pref_hour, pref_minute, hours_later)
+            deadline_time = calculate_ping_deadline_time(pref_hour, pref_minute, response_hours)
             
             # If current time is past deadline and prompt was sent today
             if current_time > deadline_time:
@@ -99,6 +99,77 @@ async def send_ping(application, context):
                     except Exception as e:
                         logger.error(f"Failed to notify emergency contact for user {user_id}: {e}")
 
+async def send_test_ping(context):
+    """
+    Send a test ping to verify the system is working.
+    This follows the same code path as regular pings but with test-specific logic.
+    """
+    from datetime import datetime
+    
+    user_id = context.job.data['user_id']
+    username = context.job.data['username']
+    
+    # Get user preferences
+    db_prefs = get_user_preferences(user_id)
+    if not db_prefs:
+        logger.warning(f"User {user_id} has no preferences for test ping")
+        return
+    
+    preferred_time, response_hours, notify_user = db_prefs
+    current_time = datetime.now()
+    
+    try:
+        # Send test message to user
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"🧪 TEST PING 🧪\n\n"
+            f"Hi {username}! This is a test ping.\n\n"
+            "Please respond within the next minute to verify the system works."
+        )
+        
+        # Record that test ping was sent
+        record_ping(user_id, current_time.date().isoformat(), ping_sent=current_time)
+        logger.info(f"Sent test ping to user {user_id}")
+        
+    except Exception as e:
+        logger.error(f"Failed to send test ping to user {user_id}: {e}")
+
+async def check_test_response(context):
+    """
+    Check if user responded to the test ping.
+    Reports results and cleans up scheduled jobs.
+    """
+    from datetime import datetime
+    
+    user_id = context.job.data['user_id']
+    username = context.job.data['username']
+    
+    # Check if user has responded (pre-emptive response counts)
+    already_responded = has_responded_today(user_id)
+    
+    try:
+        if already_responded:
+            # User responded to test
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ TEST RESULTS\n\n"
+                f"You responded successfully! The ping system is working correctly.\n\n"
+                "Both the 1-minute ping and 2-minute response check were triggered as expected."
+            )
+        else:
+            # User did not respond
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"❌ TEST RESULTS\n\n"
+                f"You did not respond to the test ping within 2 minutes.\n\n"
+                "The system is still functional, but you should verify your Telegram notifications."
+            )
+        
+        logger.info(f"Test completed for user {user_id}. Response received: {already_responded}")
+        
+    except Exception as e:
+        logger.error(f"Failed to send test results to user {user_id}: {e}")
+
 async def setup_job_scheduler(application):
     """
     Set up a job scheduler to send pings every minute.
@@ -108,11 +179,136 @@ async def setup_job_scheduler(application):
     
     # Run the check every minute
     application.job_queue.run_repeating(send_ping, interval=timedelta(minutes=1), 
-                                         application=application)
+                                          application=application)
 
 # Dictionaries to track user state and preferences
 user_state = {}  # Tracks which question the user is answering
 user_preferences = {}  # Stores parsed time data temporarily
+
+async def handle_test_command(update, context):
+    """Handle /test command to send a test ping."""
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or update.message.from_user.first_name
+    
+    # Get user preferences from database
+    db_prefs = get_user_preferences(user_id)
+    
+    if not db_prefs:
+        await update.message.reply_text("❌ Please set up your ping preferences first using /setup")
+        return
+    
+    preferred_time, response_hours, notify_user = db_prefs
+    
+    # Ask user if they want to run a test
+    test_prompt = (
+        f"🧪 Test Mode
+"
+        "I'll send you a test ping in 1 minute and check for your response after 2 minutes.
+"
+        "This will verify that the ping system is working correctly.
+
+"
+        "Would you like to proceed? (y/yes or n/no):"
+    )
+    await update.message.reply_text(test_prompt)
+    
+    # Store test state for this user
+    context.user_data['awaiting_test_confirmation'] = True
+    context.user_data['test_user_id'] = user_id
+
+def get_todays_ping(user_id):
+    """
+    Get today's ping record for a user.
+    
+    Returns:
+        Tuple of (ping_date, ping_sent, response_received, buddy_notified) or None if no record
+    """
+    from datetime import date
+    today = date.today().isoformat()
+    
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "SELECT check_date, prompt_sent, response_received, notified_contact FROM wellness_checks "
+            "WHERE user_id = ? AND check_date = ?",
+            [user_id, today]
+        )
+        return cursor.fetchone()
+
+async def handle_setup_command(update, context):
+    """Handle /setup command to reset and reconfigure ping settings."""
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or update.message.from_user.first_name
+    
+    # Reset state for this user
+    if user_id in user_state:
+        del user_state[user_id]
+    if user_id in user_preferences:
+        del user_preferences[user_id]
+    
+    # Clear any existing preferences from database
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM users WHERE user_id = ?", [user_id])
+    
+    setup_message = (
+        f"🔄 Setup Mode
+"
+        "I'll reset your ping configuration and ask the three setup questions again.
+"
+        "Let's begin..."
+    )
+    await update.message.reply_text(setup_message)
+    
+    # Trigger the first question by simulating STATE_NONE
+    user_state[user_id] = STATE_NONE
+
+def get_todays_ping(user_id):
+    """
+    Get today's ping record for a user.
+    
+    Returns:
+        Tuple of (ping_date, ping_sent, response_received, buddy_notified) or None if no record
+    """
+    from datetime import date
+    today = date.today().isoformat()
+    
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "SELECT check_date, prompt_sent, response_received, notified_contact FROM wellness_checks "
+            "WHERE user_id = ? AND check_date = ?",
+            [user_id, today]
+        )
+        return cursor.fetchone()
+
+async def handle_test_command(update, context):
+    """Handle /test command to send a test ping."""
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or update.message.from_user.first_name
+    
+    # Get user preferences from database
+    db_prefs = get_user_preferences(user_id)
+    
+    if not db_prefs:
+        await update.message.reply_text("❌ Please set up your ping preferences first using /setup")
+        return
+    
+    preferred_time, response_hours, notify_user = db_prefs
+    
+    # Ask user if they want to run a test
+    test_prompt = (
+        f"🧪 Test Mode
+"
+        "I'll send you a test ping in 1 minute and check for your response after 2 minutes.
+"
+        "This will verify that the ping system is working correctly.
+
+"
+        "Would you like to proceed? (y/yes or n/no):"
+    )
+    await update.message.reply_text(test_prompt)
+    
+    # Store test state for this user
+    context.user_data['awaiting_test_confirmation'] = True
+    context.user_data['test_user_id'] = user_id
 
 async def handle_message(update, context):
     """Handle incoming messages."""
@@ -126,6 +322,47 @@ async def handle_message(update, context):
     
     # Get user preferences from database
     db_prefs = get_user_preferences(user_id)
+    
+    # Check if user is awaiting test confirmation
+    if context.user_data.get('awaiting_test_confirmation', False) and 'test_user_id' in context.user_data:
+        if str(user_id) == str(context.user_data['test_user_id']):
+            text_lower = text.lower()
+            if text_lower in ['y', 'yes']:
+                # User confirmed test - schedule the test ping
+                from datetime import datetime, timedelta
+                
+                await update.message.reply_text("✅ Test confirmed! I'll send a test ping in 1 minute.")
+                
+                # Schedule test ping for 1 minute from now
+                test_ping_time = datetime.now() + timedelta(minutes=1)
+                context.job_queue.run_once(
+                    callback=send_test_ping,
+                    when=test_ping_time,
+                    name=f'test_ping_{user_id}',
+                    data={'user_id': user_id, 'username': username}
+                )
+                
+                # Schedule test response check for 2 minutes from now
+                test_check_time = datetime.now() + timedelta(minutes=2)
+                context.job_queue.run_once(
+                    callback=check_test_response,
+                    when=test_check_time,
+                    name=f'test_check_{user_id}',
+                    data={'user_id': user_id, 'username': username}
+                )
+                
+                # Store test state and job names for cleanup
+                context.user_data['test_in_progress'] = True
+                context.user_data['test_started_at'] = datetime.now()
+                context.user_data['test_job_names'] = [f'test_ping_{user_id}', f'test_check_{user_id}']
+            else:
+                await update.message.reply_text("❌ Test cancelled.")
+            
+            # Clear confirmation state
+            del context.user_data['awaiting_test_confirmation']
+            if 'test_user_id' in context.user_data:
+                del context.user_data['test_user_id']
+            return
     
     # Check user state
     current_state = user_state.get(user_id, STATE_NONE)
@@ -248,22 +485,37 @@ async def handle_message(update, context):
         # Reset state for next messages
         user_state[user_id] = STATE_NONE
     
-    else:
-        # Existing user with saved preferences - show wellness check status
-        if db_prefs:
-            preferred_time, response_hours, notify_user = db_prefs
-            
-            # Check if user has already responded today (pre-emptive response)
-            already_responded = has_responded_today(user_id)
-            if already_responded:
-                response = (
-                    f"✅ Got it! You've already confirmed you're okay today.\n"
-                    f"Your ping is active:\n"
-                    f"- Daily ping time: {preferred_time}\n"
-                    f"- Response window: {response_hours} hours\n"
-                )
-                if notify_user:
-                    response += f"- Buddy contact: {notify_user}\n"
+        else:
+            # Existing user with saved preferences - show wellness check status
+            if db_prefs:
+                preferred_time, response_hours, notify_user = db_prefs
+                
+                # Check if user has already responded today (pre-emptive response)
+                already_responded = has_responded_today(user_id)
+                if already_responded:
+                    response = (
+                        f"✅ Got it! You've already confirmed you're okay today.\n"
+                        f"Your ping is active:\n"
+                        f"- Daily ping time: {preferred_time}\n"
+                        f"- Response window: {response_hours} hours\n"
+                    )
+                    if notify_user:
+                        response += f"- Buddy contact: {notify_user}\n"
+                    await update.message.reply_text(response)
+                else:
+                    greeting = (
+                        f"Hi {username}! 👋\n\n"
+                        f"Welcome back! Your ping is active:\n"
+                        f"- Daily ping time: {preferred_time}\n"
+                        f"- Response window: {response_hours} hours\n"
+                    )
+                    if notify_user:
+                        greeting += f"- Buddy contact: {notify_user}\n"
+                    greeting += "\nI'll send your daily ping at " + preferred_time
+                    await update.message.reply_text(greeting)
+            else:
+                # Fallback for users who somehow don't have preferences
+                response = f"✅ Got it! I'll note that you're okay today. Your ping is active."
                 await update.message.reply_text(response)
             else:
                 greeting = (
@@ -291,6 +543,14 @@ def main():
     
     # Create application and add handlers
     application = Application.builder().token(token).build()
+    
+    # Add command handlers
+    application.add_handler(CommandHandler('test', handle_test_command))
+    application.add_handler(CommandHandler('setup', handle_setup_command))
+    
+    # Add command handlers
+    application.add_handler(CommandHandler('test', handle_test_command))
+    application.add_handler(CommandHandler('setup', handle_setup_command))
     
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
