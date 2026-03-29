@@ -151,10 +151,13 @@ async def setup_job_scheduler(application):
     """
     Set up a job scheduler to send pings every minute.
     This allows us to check if it's time to send pings based on users' preferred times.
+    
+    Note: The job queue is only used for the repeating check itself.
+    All actual ping logic (including test pings) is handled during polling.
     """
     from datetime import timedelta
     
-    # Run the check every minute
+    # Run the check every minute to send regular pings and handle test pings
     application.job_queue.run_repeating(send_ping, interval=timedelta(minutes=1), 
                                           application=application)
 
