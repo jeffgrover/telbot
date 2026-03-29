@@ -5,17 +5,22 @@ Message handlers for the Telegram Ping Bot
 from telegram.ext import ContextTypes
 from datetime import datetime, timedelta
 import logging
+import asyncio
 
 from bot.config import logger, user_state, user_preferences, STATE_NONE, STATE_ASKED_TIME, STATE_ASKED_HOURS, STATE_ASKED_NOTIFY
 from database import get_user_preferences, save_user_preferences, record_ping, has_responded_today, get_all_users_with_ping_preferences, get_todays_ping
 from time_utils import parse_time_input, format_time_for_display, calculate_ping_deadline_time
 
-async def send_ping(application, context):
+async def send_ping(context):
     """
     Send daily pings to all users at their preferred time.
     Also checks for non-responses and notifies buddy contacts.
     Additionally handles test pings during regular polling.
+    
+    This is called by the job queue every minute.
     """
+    # Get application from context
+    application = context.application
     from datetime import timezone
     current_time = datetime.now(timezone.utc)
     hour = current_time.hour
@@ -87,21 +92,26 @@ async def send_ping(application, context):
                         logger.error(f"Failed to notify emergency contact for user {user_id}: {e}")
                 
             # Check if there are any pending test pings to send
-            if 'test_in_progress' in context.user_data:
-                test_ping_time = context.user_data.get('test_ping_time')
-                test_check_time = context.user_data.get('test_check_time')
+            from bot.config import test_state, test_contexts
+            if 'test_in_progress' in test_state:
+                test_ping_time = test_state.get('test_ping_time')
+                test_check_time = test_state.get('test_check_time')
+                # Get the context for this user's test
+                test_ctx = test_contexts.get(test_state.get('test_user_id'))
                 
                 # Log time remaining for observability
                 if test_ping_time:
                     time_remaining = (test_ping_time - current_time).total_seconds()
-                    logger.info(f"Test ping scheduled - Time remaining: {time_remaining:.1f} seconds")
+                    logger.info(f"🧪 TEST PING SCHEDULED: Time remaining {time_remaining:.1f}s - Ping at {test_ping_time}")
                 if test_check_time:
                     time_remaining = (test_check_time - current_time).total_seconds()
-                    logger.info(f"Test check scheduled - Time remaining: {time_remaining:.1f} seconds")
+                    logger.info(f"🧪 TEST CHECK SCHEDULED: Time remaining {time_remaining:.1f}s - Check at {test_check_time}")
                 
                 if test_ping_time and current_time >= test_ping_time:
-                    user_id = context.user_data.get('test_user_id')
-                    username = context.user_data.get('username', 'user')
+                    user_id = test_state.get('test_user_id')
+                    username = test_state.get('username', 'user')
+                    # Use the stored context for this user
+                    ctx = test_ctx or context
                     
                     # Send the test ping
                     try:
@@ -121,8 +131,10 @@ async def send_ping(application, context):
                 
                 # Check if it's time to verify test response
                 if test_check_time and current_time >= test_check_time:
-                    user_id = context.user_data.get('test_user_id')
-                    username = context.user_data.get('username', 'user')
+                    user_id = test_state.get('test_user_id')
+                    username = test_state.get('username', 'user')
+                    # Use the stored context for this user
+                    ctx = test_ctx or context
                     
                     try:
                         # Check if user has responded (pre-emptive response counts)
@@ -153,28 +165,26 @@ async def send_ping(application, context):
                         logger.error(f"Failed to send test results to user {user_id}: {e}")
                     
                     # Clean up test state
-                    if 'test_in_progress' in context.user_data:
-                        del context.user_data['test_in_progress']
-                    if 'test_ping_time' in context.user_data:
-                        del context.user_data['test_ping_time']
-                    if 'test_check_time' in context.user_data:
-                        del context.user_data['test_check_time']
+                    if 'test_in_progress' in test_state:
+                        del test_state['test_in_progress']
+                    if 'test_ping_time' in test_state:
+                        del test_state['test_ping_time']
+                    if 'test_check_time' in test_state:
+                        del test_state['test_check_time']
 
 
 
 async def setup_job_scheduler(application):
     """
-    Set up a job scheduler to send pings every minute.
+    Set up a simple job that checks for pings every minute.
     This allows us to check if it's time to send pings based on users' preferred times.
     
-    Note: The job queue is only used for the repeating check itself.
-    All actual ping logic (including test pings) is handled during polling.
+    Note: All actual ping logic (including test pings) is handled during polling.
     """
     from datetime import timedelta
     
-    # Run the check every minute to send regular pings and handle test pings
-    application.job_queue.run_repeating(send_ping, interval=timedelta(minutes=1), 
-                                          application=application)
+    # Use the application's job queue - simple and reliable
+    application.job_queue.run_repeating(send_ping, interval=timedelta(minutes=1))
 
 async def handle_test_command(update, context):
     """Handle /test command to send a test ping."""
@@ -190,6 +200,9 @@ async def handle_test_command(update, context):
     
     preferred_time, response_hours, notify_user = db_prefs
     
+    # Log test initiation
+    logger.info(f"🧪 TEST INITIATED: User {user_id} ({username}) requested a test ping")
+    
     # Ask user if they want to run a test
     test_prompt = (
         "🧪 Test Mode\n"
@@ -200,8 +213,8 @@ async def handle_test_command(update, context):
     await update.message.reply_text(test_prompt)
     
     # Store test state for this user
-    context.user_data['awaiting_test_confirmation'] = True
-    context.user_data['test_user_id'] = user_id
+    from bot.config import awaiting_test_confirmation
+    awaiting_test_confirmation[user_id] = True
 
 async def handle_setup_command(update, context):
     """Handle /setup command to reset and reconfigure ping settings."""
@@ -239,28 +252,36 @@ async def handle_message(update, context):
     db_prefs = get_user_preferences(user_id)
     
     # Check if user is awaiting test confirmation
-    if context.user_data.get('awaiting_test_confirmation', False) and 'test_user_id' in context.user_data:
-        if str(user_id) == str(context.user_data['test_user_id']):
-            text_lower = text.lower()
-            if text_lower in ['y', 'yes']:
-                # User confirmed test - store test state for handling during regular polling
-                await update.message.reply_text("✅ Test confirmed! I'll send a test ping in 1 minute.")
-                
-                # Store test state with scheduled times (using local time)
-                from datetime import timezone
-                now = datetime.now(timezone.utc)
-                context.user_data['test_in_progress'] = True
-                context.user_data['test_started_at'] = now
-                context.user_data['test_ping_time'] = now + timedelta(minutes=1)
-                context.user_data['test_check_time'] = now + timedelta(minutes=2)
-            else:
-                await update.message.reply_text("❌ Test cancelled.")
+    from bot.config import test_state, awaiting_test_confirmation, test_contexts
+    if awaiting_test_confirmation.get(user_id, False):
+        text_lower = text.lower()
+        if text_lower in ['y', 'yes']:
+            # User confirmed test - store test state for handling during regular polling
+            await update.message.reply_text("✅ Test confirmed! I'll send a test ping in 1 minute.")
             
-            # Clear confirmation state
-            del context.user_data['awaiting_test_confirmation']
-            if 'test_user_id' in context.user_data:
-                del context.user_data['test_user_id']
-            return
+            # Store test state with scheduled times (using local time)
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            test_state['test_in_progress'] = True
+            test_state['test_started_at'] = now
+            ping_time = now + timedelta(minutes=1)
+            check_time = now + timedelta(minutes=2)
+            
+            # Log test confirmation with scheduled times
+            logger.info(f"🧪 TEST CONFIRMED: User {user_id} ({username}) - Ping at {ping_time}, Check at {check_time}")
+            test_state['test_ping_time'] = ping_time
+            test_state['test_check_time'] = check_time
+            test_state['test_user_id'] = user_id
+            test_state['username'] = username
+            # Store the context for this user's test
+            test_contexts[user_id] = context
+        else:
+            await update.message.reply_text("❌ Test cancelled.")
+        
+        # Clear confirmation state
+        if user_id in awaiting_test_confirmation:
+            del awaiting_test_confirmation[user_id]
+        return
     
     # Check user state
     current_state = user_state.get(user_id, STATE_NONE)

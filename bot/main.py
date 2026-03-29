@@ -12,6 +12,8 @@ This bot performs friendly check-ins via Telegram:
 
 import os
 import logging
+import sys
+from datetime import timedelta
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 
 from bot.config import logger
@@ -19,7 +21,7 @@ from bot.handlers import (
     handle_message,
     handle_test_command,
     handle_setup_command,
-    setup_job_scheduler
+    send_ping
 )
 from database import init_db
 
@@ -37,6 +39,20 @@ def main():
         logger.error('TELEGRAM_BOT_TOKEN environment variable not set')
         return
 
+    # Check for existing lock file to prevent multiple instances
+    lock_file = 'bot.lock'
+    if os.path.exists(lock_file):
+        logger.error('Another bot instance is already running. Exiting to prevent conflicts.')
+        sys.exit(1)
+
+    # Create lock file
+    try:
+        with open(lock_file, 'w') as f:
+            f.write(str(os.getpid()))
+    except IOError as e:
+        logger.error(f'Failed to create lock file: {e}')
+        sys.exit(1)
+
     # Initialize database on first run
     if not os.path.exists('bot_database.sqlite'):
         init_db()
@@ -50,10 +66,16 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Set up job scheduler for sending wellness prompts
-    setup_job_scheduler(application)
 
     logger.info('Bot started and running...')
     application.run_polling()
+    
+    # Clean up lock file on normal exit
+    if os.path.exists(lock_file):
+        try:
+            os.remove(lock_file)
+        except OSError as e:
+            logger.warning(f'Failed to remove lock file: {e}')
 
 if __name__ == '__main__':
     main()
