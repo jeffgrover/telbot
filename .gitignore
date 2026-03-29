@@ -24,3 +24,4 @@ venv/
 # OS files
 .DS_Store
 Thumbs.dbbot.lock
+bot.lock
