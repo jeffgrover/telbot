@@ -21,13 +21,16 @@ async def send_ping(context):
     """
     # Get application from context
     application = context.application
+    
+    # Log that we're checking for pings (for debugging)
+    logger.info(f"🔍 PING CHECK: Running scheduled ping check at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     from datetime import timezone
     current_time = datetime.now(timezone.utc)
     hour = current_time.hour
     minute = current_time.minute
     
     # Log polling interval for observability
-    logger.info(f"Polling cycle - Checking for pings at {current_time} (hour={hour}, minute={minute})")
+    logger.info(f"🔍 PING CHECK: Checking for pings at {current_time.strftime('%Y-%m-%d %H:%M:%S')} (hour={hour}, minute={minute})")
     
     # Get all users with ping preferences
     users = get_all_users_with_ping_preferences()
@@ -102,10 +105,10 @@ async def send_ping(context):
                 # Log time remaining for observability
                 if test_ping_time:
                     time_remaining = (test_ping_time - current_time).total_seconds()
-                    logger.info(f"🧪 TEST PING SCHEDULED: Time remaining {time_remaining:.1f}s - Ping at {test_ping_time}")
+                    logger.info(f"🧪 TEST PING SCHEDULED: Time remaining {time_remaining:.1f}s - Ping at {test_ping_time.strftime('%Y-%m-%d %H:%M:%S')}")
                 if test_check_time:
                     time_remaining = (test_check_time - current_time).total_seconds()
-                    logger.info(f"🧪 TEST CHECK SCHEDULED: Time remaining {time_remaining:.1f}s - Check at {test_check_time}")
+                    logger.info(f"🧪 TEST CHECK SCHEDULED: Time remaining {time_remaining:.1f}s - Check at {test_check_time.strftime('%Y-%m-%d %H:%M:%S')}")
                 
                 if test_ping_time and current_time >= test_ping_time:
                     user_id = test_state.get('test_user_id')
@@ -260,15 +263,14 @@ async def handle_message(update, context):
             await update.message.reply_text("✅ Test confirmed! I'll send a test ping in 1 minute.")
             
             # Store test state with scheduled times (using local time)
-            from datetime import timezone
-            now = datetime.now(timezone.utc)
+            now = datetime.now()
             test_state['test_in_progress'] = True
             test_state['test_started_at'] = now
             ping_time = now + timedelta(minutes=1)
             check_time = now + timedelta(minutes=2)
             
             # Log test confirmation with scheduled times
-            logger.info(f"🧪 TEST CONFIRMED: User {user_id} ({username}) - Ping at {ping_time}, Check at {check_time}")
+            logger.info(f"🧪 TEST CONFIRMED: User {user_id} ({username}) - Ping at {ping_time.strftime('%Y-%m-%d %H:%M:%S')}, Check at {check_time.strftime('%Y-%m-%d %H:%M:%S')}")
             test_state['test_ping_time'] = ping_time
             test_state['test_check_time'] = check_time
             test_state['test_user_id'] = user_id
