@@ -14,7 +14,7 @@ import os
 import logging
 import sys
 import atexit
-from datetime import timedelta
+import asyncio
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 
 from bot.config import logger
@@ -70,13 +70,13 @@ def main():
 
     # Create application and add handlers
     application = Application.builder().token(token).build()
-
+    
     # Add command handlers
     application.add_handler(CommandHandler('test', handle_test_command))
     application.add_handler(CommandHandler('setup', handle_setup_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Set up job scheduler for sending wellness prompts
+
 
     logger.info('Bot started and running...')
     application.run_polling()

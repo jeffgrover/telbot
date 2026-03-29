@@ -24,4 +24,3 @@ user_preferences = {}  # Stores parsed time data temporarily
 # Test state for tracking test pings
 test_state = {}  # Tracks test ping state (in_progress, times, user_id)
 awaiting_test_confirmation = {}  # Tracks users awaiting test confirmation
-test_contexts = {}  # Stores context objects for each user's test

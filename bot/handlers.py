@@ -11,21 +11,14 @@ from bot.config import logger, user_state, user_preferences, STATE_NONE, STATE_A
 from database import get_user_preferences, save_user_preferences, record_ping, has_responded_today, get_all_users_with_ping_preferences, get_todays_ping
 from time_utils import parse_time_input, format_time_for_display, calculate_ping_deadline_time
 
-async def send_ping(context):
+async def send_ping(application):
     """
     Send daily pings to all users at their preferred time.
     Also checks for non-responses and notifies buddy contacts.
     Additionally handles test pings during regular polling.
     
-    This is called by the job queue every minute.
+    This is called periodically from the main loop.
     """
-    # Get application from context
-    if not hasattr(context, 'application') or not context.application:
-        logger.warning("⚠️ PING CHECK: No application available in context")
-        return
-    
-    application = context.application
-    
     # Log that we're checking for pings (for debugging)
     logger.info(f"🔍 PING CHECK: Running scheduled ping check at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     from datetime import timezone
@@ -99,12 +92,10 @@ async def send_ping(context):
                         logger.error(f"Failed to notify emergency contact for user {user_id}: {e}")
                 
             # Check if there are any pending test pings to send
-            from bot.config import test_state, test_contexts
+            from bot.config import test_state
             if 'test_in_progress' in test_state:
                 test_ping_time = test_state.get('test_ping_time')
                 test_check_time = test_state.get('test_check_time')
-                # Get the context for this user's test
-                test_ctx = test_contexts.get(test_state.get('test_user_id'))
                 
                 # Log time remaining for observability
                 if test_ping_time:
@@ -117,8 +108,6 @@ async def send_ping(context):
                 if test_ping_time and current_time >= test_ping_time:
                     user_id = test_state.get('test_user_id')
                     username = test_state.get('username', 'user')
-                    # Use the stored context for this user
-                    ctx = test_ctx or context
                     
                     # Send the test ping
                     try:
@@ -140,8 +129,6 @@ async def send_ping(context):
                 if test_check_time and current_time >= test_check_time:
                     user_id = test_state.get('test_user_id')
                     username = test_state.get('username', 'user')
-                    # Use the stored context for this user
-                    ctx = test_ctx or context
                     
                     try:
                         # Check if user has responded (pre-emptive response counts)
@@ -259,7 +246,7 @@ async def handle_message(update, context):
     db_prefs = get_user_preferences(user_id)
     
     # Check if user is awaiting test confirmation
-    from bot.config import test_state, awaiting_test_confirmation, test_contexts
+    from bot.config import test_state, awaiting_test_confirmation
     if awaiting_test_confirmation.get(user_id, False):
         text_lower = text.lower()
         if text_lower in ['y', 'yes']:
@@ -279,8 +266,6 @@ async def handle_message(update, context):
             test_state['test_check_time'] = check_time
             test_state['test_user_id'] = user_id
             test_state['username'] = username
-            # Store the context for this user's test
-            test_contexts[user_id] = context
         else:
             await update.message.reply_text("❌ Test cancelled.")
         
