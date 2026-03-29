@@ -14,8 +14,10 @@ async def send_ping(application, context):
     """
     Send daily pings to all users at their preferred time.
     Also checks for non-responses and notifies buddy contacts.
+    Additionally handles test pings during regular polling.
     """
-    current_time = datetime.now()
+    from datetime import timezone
+    current_time = datetime.now(timezone.utc)
     hour = current_time.hour
     minute = current_time.minute
     
@@ -78,73 +80,72 @@ async def send_ping(application, context):
                                    buddy_notified=current_time)
                     except Exception as e:
                         logger.error(f"Failed to notify emergency contact for user {user_id}: {e}")
+                
+            # Check if there are any pending test pings to send
+            if 'test_in_progress' in context.user_data:
+                test_ping_time = context.user_data.get('test_ping_time')
+                test_check_time = context.user_data.get('test_check_time')
+                
+                if test_ping_time and current_time >= test_ping_time:
+                    user_id = context.user_data.get('test_user_id')
+                    username = context.user_data.get('username', 'user')
+                    
+                    # Send the test ping
+                    try:
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=f"🧪 TEST PING 🧪\n\n"
+                            f"Hi {username}! This is a test ping.\n\n"
+                            "Please respond within the next minute to verify the system works."
+                        )
+                        
+                        # Record that test ping was sent
+                        record_ping(user_id, current_time.date().isoformat(), ping_sent=current_time)
+                        logger.info(f"Sent test ping to user {user_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to send test ping to user {user_id}: {e}")
+                
+                # Check if it's time to verify test response
+                if test_check_time and current_time >= test_check_time:
+                    user_id = context.user_data.get('test_user_id')
+                    username = context.user_data.get('username', 'user')
+                    
+                    try:
+                        # Check if user has responded (pre-emptive response counts)
+                        already_responded = has_responded_today(user_id)
+                        
+                        if already_responded:
+                            # User responded to test
+                            await application.bot.send_message(
+                                chat_id=user_id,
+                                text=f"✅ TEST RESULTS\n\n"
+                                f"You responded successfully! The ping system is working correctly.\n\n"
+                                "Both the 1-minute ping and 2-minute response check were triggered as expected."
+                            )
+                        else:
+                            # User did not respond
+                            await application.bot.send_message(
+                                chat_id=user_id,
+                                text=f"❌ TEST RESULTS\n\n"
+                                f"You did not respond to the test ping within 2 minutes.\n\n"
+                                "The system is still functional, but you should verify your Telegram notifications."
+                            )
+                        
+                        logger.info(f"Test completed for user {user_id}. Response received: {already_responded}")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to send test results to user {user_id}: {e}")
+                    
+                    # Clean up test state
+                    if 'test_in_progress' in context.user_data:
+                        del context.user_data['test_in_progress']
+                    if 'test_ping_time' in context.user_data:
+                        del context.user_data['test_ping_time']
+                    if 'test_check_time' in context.user_data:
+                        del context.user_data['test_check_time']
 
-async def send_test_ping(context):
-    """
-    Send a test ping to verify the system is working.
-    This follows the same code path as regular pings but with test-specific logic.
-    """
-    user_id = context.job.data['user_id']
-    username = context.job.data['username']
-    
-    # Get user preferences
-    db_prefs = get_user_preferences(user_id)
-    if not db_prefs:
-        logger.warning(f"User {user_id} has no preferences for test ping")
-        return
-    
-    preferred_time, response_hours, notify_user = db_prefs
-    current_time = datetime.now()
-    
-    try:
-        # Send test message to user
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"🧪 TEST PING 🧪\n\n"
-            f"Hi {username}! This is a test ping.\n\n"
-            "Please respond within the next minute to verify the system works."
-        )
-        
-        # Record that test ping was sent
-        record_ping(user_id, current_time.date().isoformat(), ping_sent=current_time)
-        logger.info(f"Sent test ping to user {user_id}")
-        
-    except Exception as e:
-        logger.error(f"Failed to send test ping to user {user_id}: {e}")
 
-async def check_test_response(context):
-    """
-    Check if user responded to the test ping.
-    Reports results and cleans up scheduled jobs.
-    """
-    user_id = context.job.data['user_id']
-    username = context.job.data['username']
-    
-    # Check if user has responded (pre-emptive response counts)
-    already_responded = has_responded_today(user_id)
-    
-    try:
-        if already_responded:
-            # User responded to test
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"✅ TEST RESULTS\n\n"
-                f"You responded successfully! The ping system is working correctly.\n\n"
-                "Both the 1-minute ping and 2-minute response check were triggered as expected."
-            )
-        else:
-            # User did not respond
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"❌ TEST RESULTS\n\n"
-                f"You did not respond to the test ping within 2 minutes.\n\n"
-                "The system is still functional, but you should verify your Telegram notifications."
-            )
-        
-        logger.info(f"Test completed for user {user_id}. Response received: {already_responded}")
-        
-    except Exception as e:
-        logger.error(f"Failed to send test results to user {user_id}: {e}")
 
 async def setup_job_scheduler(application):
     """
@@ -224,31 +225,16 @@ async def handle_message(update, context):
         if str(user_id) == str(context.user_data['test_user_id']):
             text_lower = text.lower()
             if text_lower in ['y', 'yes']:
-                # User confirmed test - schedule the test ping
+                # User confirmed test - store test state for handling during regular polling
                 await update.message.reply_text("✅ Test confirmed! I'll send a test ping in 1 minute.")
                 
-                # Schedule test ping for 1 minute from now
-                test_ping_time = datetime.now() + timedelta(minutes=1)
-                context.job_queue.run_once(
-                    callback=send_test_ping,
-                    when=test_ping_time,
-                    name=f'test_ping_{user_id}',
-                    data={'user_id': user_id, 'username': username}
-                )
-                
-                # Schedule test response check for 2 minutes from now
-                test_check_time = datetime.now() + timedelta(minutes=2)
-                context.job_queue.run_once(
-                    callback=check_test_response,
-                    when=test_check_time,
-                    name=f'test_check_{user_id}',
-                    data={'user_id': user_id, 'username': username}
-                )
-                
-                # Store test state and job names for cleanup
+                # Store test state with scheduled times (using local time)
+                from datetime import timezone
+                now = datetime.now(timezone.utc)
                 context.user_data['test_in_progress'] = True
-                context.user_data['test_started_at'] = datetime.now()
-                context.user_data['test_job_names'] = [f'test_ping_{user_id}', f'test_check_{user_id}']
+                context.user_data['test_started_at'] = now
+                context.user_data['test_ping_time'] = now + timedelta(minutes=1)
+                context.user_data['test_check_time'] = now + timedelta(minutes=2)
             else:
                 await update.message.reply_text("❌ Test cancelled.")
             
