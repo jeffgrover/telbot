@@ -79,7 +79,7 @@ def record_ping(user_id, ping_date, ping_sent=None, response_received=None, budd
             INSERT INTO wellness_checks (user_id, check_date, prompt_sent, response_received, notified_contact)
             VALUES (?, ?, ?, ?, ?)
             """,
-            [user_id, check_date, prompt_sent, response_received, notified_contact]
+            [user_id, ping_date, ping_sent, response_received, buddy_notified]
         )
 
 def get_todays_ping(user_id):

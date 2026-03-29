@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "python-telegram-bot>=22.7",
+    "python-telegram-bot[job-queue]>=22.7",
 ]
 
 [dependency-groups]
