@@ -21,6 +21,9 @@ async def send_ping(application, context):
     hour = current_time.hour
     minute = current_time.minute
     
+    # Log polling interval for observability
+    logger.info(f"Polling cycle - Checking for pings at {current_time} (hour={hour}, minute={minute})")
+    
     # Get all users with ping preferences
     users = get_all_users_with_ping_preferences()
     if not users:
@@ -37,7 +40,7 @@ async def send_ping(application, context):
         
         # Check if it's time to send prompt
         if hour == pref_hour and minute == pref_minute:
-            logger.info(f"Sending wellness prompt to user {user_id} ({username})")
+            logger.info(f"⏰ TIMED PING: Sending wellness prompt to user {user_id} ({username}) at {current_time}")
             
             try:
                 # Send message to user
@@ -50,6 +53,7 @@ async def send_ping(application, context):
                 
                 # Record that ping was sent
                 record_ping(user_id, current_time.date().isoformat(), ping_sent=current_time)
+                logger.info(f"✅ SENT: Regular ping to user {user_id} at {current_time}")
                 
             except Exception as e:
                 logger.error(f"Failed to send wellness prompt to user {user_id}: {e}")
@@ -78,6 +82,7 @@ async def send_ping(application, context):
                                    ping_sent=record[1], 
                                    response_received=record[2],
                                    buddy_notified=current_time)
+                        logger.info(f"⚠️ SENT: Buddy notification to {notify_user} for user {user_id} at {current_time}")
                     except Exception as e:
                         logger.error(f"Failed to notify emergency contact for user {user_id}: {e}")
                 
@@ -85,6 +90,14 @@ async def send_ping(application, context):
             if 'test_in_progress' in context.user_data:
                 test_ping_time = context.user_data.get('test_ping_time')
                 test_check_time = context.user_data.get('test_check_time')
+                
+                # Log time remaining for observability
+                if test_ping_time:
+                    time_remaining = (test_ping_time - current_time).total_seconds()
+                    logger.info(f"Test ping scheduled - Time remaining: {time_remaining:.1f} seconds")
+                if test_check_time:
+                    time_remaining = (test_check_time - current_time).total_seconds()
+                    logger.info(f"Test check scheduled - Time remaining: {time_remaining:.1f} seconds")
                 
                 if test_ping_time and current_time >= test_ping_time:
                     user_id = context.user_data.get('test_user_id')
@@ -101,7 +114,7 @@ async def send_ping(application, context):
                         
                         # Record that test ping was sent
                         record_ping(user_id, current_time.date().isoformat(), ping_sent=current_time)
-                        logger.info(f"Sent test ping to user {user_id}")
+                        logger.info(f"✅ SENT: Test ping to user {user_id} at {current_time}")
                         
                     except Exception as e:
                         logger.error(f"Failed to send test ping to user {user_id}: {e}")
@@ -123,6 +136,7 @@ async def send_ping(application, context):
                                 f"You responded successfully! The ping system is working correctly.\n\n"
                                 "Both the 1-minute ping and 2-minute response check were triggered as expected."
                             )
+                            logger.info(f"✅ SENT: Test results (SUCCESS) to user {user_id} at {current_time}")
                         else:
                             # User did not respond
                             await application.bot.send_message(
@@ -131,6 +145,7 @@ async def send_ping(application, context):
                                 f"You did not respond to the test ping within 2 minutes.\n\n"
                                 "The system is still functional, but you should verify your Telegram notifications."
                             )
+                            logger.info(f"✅ SENT: Test results (FAILED) to user {user_id} at {current_time}")
                         
                         logger.info(f"Test completed for user {user_id}. Response received: {already_responded}")
                         
