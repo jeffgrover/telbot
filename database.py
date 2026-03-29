@@ -44,6 +44,40 @@ def get_user_preferences(user_id):
 
 def save_user_preferences(user_id, username, preferred_time, response_hours, notify_user=None):
     """Save or update user preferences."""
+    # Convert display format to database format (HH:MM 24-hour)
+    from datetime import datetime
+    
+    # Parse the time string to get hour and minute
+    try:
+        if 'AM' in preferred_time.upper() or 'PM' in preferred_time.upper():
+            # Handle 12-hour format
+            time_part, period = preferred_time.split()
+            if ':' in time_part:
+                hour_str, min_str = time_part.split(':')
+                hour = int(hour_str)
+                minute = int(min_str)
+            else:
+                hour = int(time_part)
+                minute = 0
+            
+            # Convert to 24-hour
+            if period == 'PM' and hour != 12:
+                hour += 12
+            elif period == 'AM' and hour == 12:
+                hour = 0
+        else:
+            # Handle 24-hour format
+            if ':' in preferred_time:
+                hour, minute = map(int, preferred_time.split(':'))
+            else:
+                hour = int(preferred_time)
+                minute = 0
+    except Exception as e:
+        print(f"Error parsing time: {e}")
+        hour, minute = 9, 0  # Default to 9 AM
+    
+    db_preferred_time = f"{hour:02d}:{minute:02d}"
+    
     with sqlite3.connect(DB_PATH) as conn:
         if notify_user is None:
             conn.execute(
@@ -51,7 +85,7 @@ def save_user_preferences(user_id, username, preferred_time, response_hours, not
                 INSERT OR REPLACE INTO users (user_id, username, preferred_time, response_hours)
                 VALUES (?, ?, ?, ?)
                 """,
-                [user_id, username, preferred_time, response_hours]
+                [user_id, username, db_preferred_time, response_hours]
             )
         else:
             conn.execute(
@@ -59,7 +93,7 @@ def save_user_preferences(user_id, username, preferred_time, response_hours, not
                 INSERT OR REPLACE INTO users (user_id, username, preferred_time, response_hours, notify_user)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                [user_id, username, preferred_time, response_hours, notify_user]
+                [user_id, username, db_preferred_time, response_hours, notify_user]
             )
 
 def record_ping(user_id, ping_date, ping_sent=None, response_received=None, buddy_notified=None):
