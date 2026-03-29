@@ -20,6 +20,10 @@ async def send_ping(context):
     This is called by the job queue every minute.
     """
     # Get application from context
+    if not hasattr(context, 'application') or not context.application:
+        logger.warning("⚠️ PING CHECK: No application available in context")
+        return
+    
     application = context.application
     
     # Log that we're checking for pings (for debugging)
