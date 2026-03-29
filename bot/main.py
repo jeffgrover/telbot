@@ -13,6 +13,7 @@ This bot performs friendly check-ins via Telegram:
 import os
 import logging
 import sys
+import atexit
 from datetime import timedelta
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 
@@ -31,6 +32,15 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+def cleanup_lockfile():
+    """Remove the lock file on exit."""
+    lock_file = 'bot.lock'
+    if os.path.exists(lock_file):
+        try:
+            os.remove(lock_file)
+        except OSError as e:
+            logger.warning(f'Failed to remove lock file: {e}')
+
 def main():
     """Start the bot."""
     # Get token from environment variable
@@ -45,10 +55,11 @@ def main():
         logger.error('Another bot instance is already running. Exiting to prevent conflicts.')
         sys.exit(1)
 
-    # Create lock file
+    # Create lock file and register cleanup handler
     try:
         with open(lock_file, 'w') as f:
             f.write(str(os.getpid()))
+        atexit.register(cleanup_lockfile)
     except IOError as e:
         logger.error(f'Failed to create lock file: {e}')
         sys.exit(1)
@@ -69,13 +80,6 @@ def main():
 
     logger.info('Bot started and running...')
     application.run_polling()
-    
-    # Clean up lock file on normal exit
-    if os.path.exists(lock_file):
-        try:
-            os.remove(lock_file)
-        except OSError as e:
-            logger.warning(f'Failed to remove lock file: {e}')
 
 if __name__ == '__main__':
     main()
