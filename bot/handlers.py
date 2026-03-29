@@ -180,6 +180,12 @@ async def setup_job_scheduler(application):
     # Use the application's job queue - simple and reliable
     application.job_queue.run_repeating(send_ping, interval=timedelta(minutes=1))
 
+async def handle_check_command(update, context):
+    """Handle /check command to manually trigger ping checks."""
+    application = context.application
+    await send_ping(application)
+    await update.message.reply_text("✅ Manual ping check triggered!")
+
 async def handle_test_command(update, context):
     """Handle /test command to send a test ping."""
     user_id = update.message.from_user.id

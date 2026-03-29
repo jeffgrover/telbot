@@ -21,6 +21,7 @@ from bot.config import logger
 from bot.handlers import (
     handle_message,
     handle_test_command,
+    handle_check_command,
     handle_setup_command,
     send_ping
 )
@@ -73,6 +74,7 @@ def main():
     
     # Add command handlers
     application.add_handler(CommandHandler('test', handle_test_command))
+    application.add_handler(CommandHandler('check', handle_check_command))
     application.add_handler(CommandHandler('setup', handle_setup_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
