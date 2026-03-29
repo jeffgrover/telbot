@@ -39,8 +39,9 @@ async def send_ping(application):
         # Parse preferred time
         try:
             pref_hour, pref_minute = map(int, preferred_time.split(':'))
-        except ValueError:
-            logger.warning(f"Could not parse preferred time for user {user_id}")
+            logger.debug(f"Parsed time: {preferred_time} -> hour={pref_hour}, minute={pref_minute}")
+        except ValueError as e:
+            logger.warning(f"Could not parse preferred time '{preferred_time}' for user {user_id}: {e}")
             continue
         
         # Check if it's time to send prompt
