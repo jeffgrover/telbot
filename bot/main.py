@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""
+Telegram Ping Bot - Main Entry Point
+
+This bot performs friendly check-ins via Telegram:
+1. Asks three questions on first contact (preferred ping time, response window, buddy contact)
+2. Sends daily pings at preferred time
+3. Waits for user response within specified hours
+4. Notifies designated buddy if no response received
+5. Stores all preferences in SQLite database
+"""
+
+import os
+import logging
+from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
+
+from bot.config import logger
+from bot.handlers import (
+    handle_message,
+    handle_test_command,
+    handle_setup_command,
+    setup_job_scheduler
+)
+from database import init_db
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+def main():
+    """Start the bot."""
+    # Get token from environment variable
+    token = os.getenv('TELEGRAM_BOT_TOKEN')
+    if not token:
+        logger.error('TELEGRAM_BOT_TOKEN environment variable not set')
+        return
+
+    # Initialize database on first run
+    if not os.path.exists('bot_database.sqlite'):
+        init_db()
+
+    # Create application and add handlers
+    application = Application.builder().token(token).build()
+
+    # Add command handlers
+    application.add_handler(CommandHandler('test', handle_test_command))
+    application.add_handler(CommandHandler('setup', handle_setup_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Set up job scheduler for sending wellness prompts
+    setup_job_scheduler(application)
+
+    logger.info('Bot started and running...')
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()

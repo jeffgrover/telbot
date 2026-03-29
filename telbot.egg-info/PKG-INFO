@@ -1,3 +1,11 @@
+Metadata-Version: 2.4
+Name: telbot
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.13
+Description-Content-Type: text/markdown
+Requires-Dist: python-telegram-bot>=22.7
+
 # Telegram Ping Bot
 
 A Telegram bot that performs friendly check-ins by sending daily pings and alerting buddy contacts if no response is received.
@@ -32,9 +40,9 @@ uv add python-telegram-bot
 # Set your bot token as an environment variable
 export TELEGRAM_BOT_TOKEN='your_bot_token_here'
 
-# Activate the virtual environment and start the bot
+# Start the bot (make sure to activate the virtual environment)
 source .venv/bin/activate
-uv run --module bot.main
+PYTHONPATH=/path/to/telbot python bot/main.py
 ```
 
 The bot will run continuously and send friendly check-ins.

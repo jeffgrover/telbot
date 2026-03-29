@@ -1,0 +1,14 @@
+[project]
+name = "telbot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "python-telegram-bot>=22.7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
