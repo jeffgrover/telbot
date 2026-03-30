@@ -110,7 +110,7 @@ def format_time_for_display(hour, minute):
 def calculate_ping_deadline_time(preferred_hour, preferred_minute, hours_later):
     """
     Calculate what time it will be X hours after a ping.
-    Returns formatted time string.
+    Returns datetime object (not formatted string).
     """
     now = datetime.now()
     # Create a datetime for today at the preferred time
@@ -121,4 +121,4 @@ def calculate_ping_deadline_time(preferred_hour, preferred_minute, hours_later):
         today_at_time = today_at_time + timedelta(days=1)
     
     deadline = today_at_time + timedelta(hours=hours_later)
-    return format_time_for_display(deadline.hour, deadline.minute)
+    return deadline
