@@ -1,353 +1,97 @@
 # Telegram Ping Bot
 
-A Telegram bot that performs friendly check-ins by sending daily pings and alerting buddy contacts if no response is received.
+A Telegram bot that performs daily check-ins: it pings users at their preferred time and alerts a buddy contact if no response is received within a configurable window.
 
-## Setup Instructions
+## Setup
 
 ### 1. Create a Telegram Bot
 - Open Telegram and search for @BotFather
-- Send `/newbot` command to create a new bot
-- Follow the instructions to name your bot (e.g., "PingBot")
-- BotFather will give you a token (save this for later)
+- Send `/newbot` and follow the prompts
+- Save the token BotFather gives you
 
 ### 2. Install Dependencies
-
-This project uses `uv` for dependency management. First, set up the virtual environment:
 
 ```bash
 # Install uv if you don't have it
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Create and activate virtual environment
+# Create virtual environment and install dependencies
 uv venv
 source .venv/bin/activate
-
-# Initialize project and install dependencies
-uv init
-uv add python-telegram-bot
+uv sync
 ```
 
 ### 3. Run the Bot
-```bash
-# Set your bot token as an environment variable
-export TELEGRAM_BOT_TOKEN='your_bot_token_here'
 
-# Activate the virtual environment and start the bot
+```bash
+export TELEGRAM_BOT_TOKEN='your_token_here'
 source .venv/bin/activate
-uv run --module bot.main
+uv run python -m bot.main
 ```
 
-The bot will run continuously and send friendly check-ins.
+Press Ctrl+C to stop.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Begin setup (new user) or show current config (returning user) |
+| `/setup` | Reset preferences and reconfigure from scratch |
+| `/test` | Send a test ping in 1 minute, check for response after 2 minutes |
+
+Any non-command message from a configured user counts as a check-in for the day.
 
 ## How It Works
 
-### User Setup Flow (First Contact)
-1. **Daily Ping Time**: User specifies when they want daily pings (e.g., 9 PM)
-2. **Response Window**: User sets how many hours to wait for response (1-12 hours)
-3. **Buddy Contact**: User designates who to notify if no response
+### Setup Flow
+1. User sends `/start` (or any message)
+2. Bot asks for preferred daily ping time (e.g. `9 PM`, `22:00`, `3:30 PM`)
+3. Bot asks how many hours to wait for a response (1-12)
+4. Bot asks for a buddy contact's Telegram username
 
 ### Daily Operation
-1. At specified time, bot sends friendly ping: "How are you doing today?"
-2. If user responds within window, all is good
-3. If no response, bot alerts buddy contact
+1. At the configured time, the bot sends a ping: "How are you doing today?"
+2. If the user responds (any message) within the window, all is good
+3. If no response by the deadline, the bot alerts the buddy contact
+4. Messages sent *before* the scheduled ping count as a pre-emptive check-in
 
-### Database Storage
-All preferences are stored in SQLite database:
-- User ID
-- Preferred ping time
-- Response window (hours)
-- Buddy contact username
+### Buddy Notification
+The buddy contact must also have started the bot (sent it `/start`) so the bot has their chat ID. If the buddy hasn't interacted with the bot, the notification is logged but can't be delivered.
 
-## Files Overview
-
-### `bot/`
-The bot has been refactored into a proper Python package with separation of concerns:
-
-#### `bot/main.py`
-Main entry point that:
-- Sets up logging
-- Initializes the database
-- Creates the Telegram application
-- Registers command handlers
-- Starts the job scheduler
-- Runs the bot
-
-#### `bot/config.py`
-Configuration and constants:
-- Logging configuration
-- State constants (STATE_NONE, STATE_ASKED_TIME, etc.)
-- Global state dictionaries (user_state, user_preferences)
-
-#### `bot/handlers.py`
-All message handlers:
-- `send_ping()`: Sends daily pings and checks for non-responses
-- `send_test_ping()`: Sends test pings for verification
-- `check_test_response()`: Checks test ping responses
-- `setup_job_scheduler()`: Configures the job scheduler
-- `handle_test_command()`: Handles /test command
-- `handle_setup_command()`: Handles /setup command
-- `handle_message()`: Handles all incoming messages and state management
-
-### `database.py`
-SQLite operations:
-- `init_db()`: Creates users table
-- `get_user_preferences(user_id)`: Retrieves settings
-- `save_user_preferences(...)`: Saves/update settings
-- `record_ping(...)`: Records ping events
-- `get_todays_ping(user_id)`: Gets today's ping record
-- `has_responded_today(user_id)`: Checks response status
-- `get_all_users_with_ping_preferences()`: Gets all users with preferences
-
-### `time_utils.py`
-Time handling utilities:
-- Flexible time format parsing (10 AM, 2 PM, 22:00, etc.)
-- Time formatting for display
-- Ping deadline calculation
-
-### `pyproject.toml`
-Project configuration and dependencies managed by `uv`:
-- Project metadata (name, version, description)
-- Python version requirements
-- Dependency list (python-telegram-bot)
-
-## Stopping the Bot
-Press Ctrl+C in the terminal where it's running.
-
----
-
-### Time Format Support
-The bot accepts multiple time formats:
-- 12-hour with AM/PM: `10 AM`, `9 PM`, `3:30 PM`
-- 24-hour format: `10`, `22:00`, `15:45`
-- Lowercase variants: `9am`, `11pm`
-
-### Input Validation
-- **Ping Time**: Validates flexible formats, re-prompts if invalid
-- **Response Window**: Must be integer between 1-12 hours
-- **Buddy Contact**: Validates non-empty username
-
-### State Management
-Four states track setup progress:
-- `STATE_NONE`: No questions asked
-- `STATE_ASKED_TIME`: Waiting for ping time
-- `STATE_ASKED_HOURS`: Waiting for response window
-- `STATE_ASKED_NOTIFY`: Waiting for buddy contact
-
----
-
-## Example User Interaction
+## Project Structure
 
 ```
-User: /start
-Bot: Welcome to the Telegram Ping Bot! I'll ask you three questions.
-    First, what time should I send your daily ping? (10 AM, 2 PM, etc.)
-
-User: 9pm
-Bot: ✅ Got it! I'll send your ping at 9 PM.
-    Second question: How many hours should I wait for your response? (1-12)
-
-User: 3
-Bot: ✅ Got it! I'll send your ping at 9 PM and wait 3 hours for response.
-    Third question: Who should I notify if you don't respond?
-
-User: @friend
-Bot: ✅ Ping configured!
-    Daily ping time: 9 PM
-    Response window: 3 hours
-    Buddy contact: @friend
-    
-    I'll send a message to @friend asking for consent.
-    If they respond with affirmation (yeah, yes, okay), their username will be saved.
-    Your ping is now active! I'll ping you daily at 9 PM
-
-Later...
-User: Hello!
-Bot: Welcome back! Your ping is active:
-    - Daily ping time: 9 PM
-    - Response window: 3 hours
-    - Buddy contact: @friend
-    
-    I'll send your daily ping at 9 PM
+bot/
+  __init__.py
+  main.py          — entry point, registers handlers and job queue
+  config.py        — constants, logger, in-memory state dicts
+  handlers.py      — command/message handlers and the periodic send_ping job
+database.py        — SQLite operations (users and wellness_checks tables)
+time_utils.py      — time parsing, formatting, deadline calculation
+tests/
+  test_database.py — database CRUD tests
+  test_time_utils.py — time utility tests
+  test_e2e.py      — end-to-end conversation tests with mocked Telegram
 ```
 
----
+## Database
 
-## Response Tracking and Pre-emptive Responses
+SQLite (`bot_database.sqlite`), two tables:
 
-### How Responses Are Tracked
-The bot maintains a permanent history of pings in the `wellness_checks` table:
-- **ping_date**: Date of the ping (YYYY-MM-DD)
-- **ping_sent**: When the daily ping was sent
-- **response_received**: When user responded
-- **buddy_notified**: When buddy contact was alerted (if applicable)
-
-### Pre-emptive Responses
-If a user messages the bot before their scheduled ping time, it counts as their response for that day:
-
-```
-User: Hi there!
-Bot: ✅ Got it! You've already confirmed you're okay today.
-    Your ping is active:
-    - Daily ping time: 9 PM
-    - Response window: 3 hours
-    - Buddy contact: @friend
-```
-
-### Duplicate Response Handling
-If a user responds multiple times in the same day:
-
-```
-User: Just checking in again!
-Bot: ✅ Got it! You've already confirmed you're okay today.
-    Your ping is active:
-    - Daily ping time: 9 PM
-    - Response window: 3 hours
-    - Buddy contact: @friend
-```
-
-The bot acknowledges the response but doesn't send another ping that day.
-
-### Daily Ping Flow
-1. **Morning**: User messages bot → Pre-emptive response recorded
-2. **Scheduled Time**: Bot tries to send ping → Sees response already recorded → Skips ping
-3. **Evening**: User messages again → Another acknowledgment with "already responded" message
-
-### Database Schema for Pings
-```sql
-CREATE TABLE wellness_checks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    check_date DATE,
-    prompt_sent TIMESTAMP,
-    response_received TIMESTAMP,
-    notified_contact TIMESTAMP,
-    FOREIN KEY (user_id) REFERENCES users(user_id)
-)
-```
-
-### Query Examples
-```python
-# Check if user has responded today
-from database import has_responded_today
-if has_responded_today(user_id):
-    print("User already responded today")
-
-# Record a response
-from database import record_ping
-from datetime import datetime
-record_ping(user_id, datetime.now().date(), response_received=datetime.now())
-```
-
----
+- **users** — user_id, username, preferred_time (HH:MM), response_hours, notify_user
+- **wellness_checks** — one row per user per day tracking ping_sent, response_received, notified_contact
 
 ## Running Tests
 
-The project includes comprehensive unit tests using pytest.
-
-### Requirements
 ```bash
-# Make sure you're in the virtual environment
 source .venv/bin/activate
-
-# Install pytest
-uv add pytest --dev
+PYTHONPATH=. pytest tests/ -v
 ```
 
-### Running Tests
-```bash
-# Make sure to set PYTHONPATH
-PYTHONPATH=/path/to/telbot pytest tests/
+## Time Format Support
 
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/test_database.py
-
-# Run with verbose output
-pytest -v
-
-# Run with coverage (if you have pytest-cov installed)
-pytest --cov=database --cov=time_utils --cov=bot
-```
-
-### Test Coverage
-- **43+ tests** covering all major functionality
-- **98%+ pass rate** on all test runs
-- Tests cover:
-  - Database operations (CRUD for preferences and pings)
-  - Time parsing with multiple formats
-  - Time formatting for display
-  - Ping deadline calculation
-  - Edge cases and error conditions
-  - Integration scenarios
-
-### Example Test Output
-```
-$ pytest tests/ -v
-============================= test session starts =============================
-platform linux -- Python 3.12.6, pytest-8.4.1, pluggy-1.6.0 -- ...
-collecting ... collected 43 items
-
-tests/test_database.py::TestDatabaseInitialization::test_init_db_creates_tables PASSED [  2%]
-tests/test_database.py::TestUserPreferences::test_save_and_get_preferences PASSED [  4%]
-tests/test_time_utils.py::TestTimeParsing::test_parse_time_input[10 AM-expected0] PASSED [30%]
-...
-tests/test_time_utils.py::TestEdgeCases::test_max_hour PASSED            [100%]
-========================= 43 passed, 5 warnings in 0.11s =========================
-```
-
----
-
-## Test Structure
-
-### Database Tests (`tests/test_database.py`)
-- `TestDatabaseInitialization`: Tests table creation
-- `TestUserPreferences`: Tests CRUD operations for user preferences
-- `TestPingTracking`: Tests ping recording and retrieval
-- `TestIntegration`: Tests complete workflows
-
-### Time Utilities Tests (`tests/test_time_utils.py`)
-- `TestTimeParsing`: Tests parsing various time formats
-- `TestTimeFormatting`: Tests formatting for display
-- `TestDeadlineCalculation`: Tests ping deadline calculation logic
-- `TestEdgeCases`: Tests boundary conditions
-
----
-
-## Continuous Integration
-
-To set up CI, create a `.github/workflows/test.yml` file:
-
-```yaml
-name: Test
-
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-      - run: pip install uv
-      - run: uv venv
-      - run: source .venv/bin/activate && uv add python-telegram-bot pytest
-      - run: source .venv/bin/activate && PYTHONPATH=/path/to/telbot pytest tests/ -v
-```
-
-This will automatically run tests on every push and pull request using the same `uv` setup.
-
----
-
-## Future Enhancements
-- [x] Automatic daily ping sending (job queue implemented)
-- [x] Actual buddy notification logic (implemented)
-- [x] Response tracking and timeout handling (implemented)
-- [ ] Multiple buddy contacts support
-- [ ] Configurable ping message content
-- [ ] Notifications for low battery or offline status
-- [ ] Weekly/monthly summary reports
-- [ ] Customizable ping frequencies (multiple times per day)
+The bot accepts:
+- 12-hour with AM/PM: `10 AM`, `9 PM`, `3:30 PM`
+- 24-hour: `22:00`, `15:45`
+- Compact: `9pm`, `9AM`
+- Bare hour: `10`, `22`

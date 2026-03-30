@@ -1,124 +1,75 @@
 from datetime import datetime, timedelta
 import re
 
+
 def parse_time_input(time_str):
     """
     Parse flexible time formats.
-    Supports: "10 AM", "10:00", "22:00:00", "10am", "10pm", etc.
+    Supports: "10 AM", "9pm", "22:00", "3:30 PM", "15:45", "10"
     Returns (hour, minute) tuple or None if invalid.
     """
-    time_str_upper = time_str.upper()
-    
-    # Try 24-hour format with minutes: "10:30", "22:00"
-    match_24h_colon = re.match(r'^(\d{1,2}):(\d{2})$', time_str_upper)
-    if match_24h_colon:
-        hour = int(match_24h_colon.group(1))
-        minute = int(match_24h_colon.group(2))
-        # Validate hour is within 0-23 range
-        if 0 <= hour < 24:
-            return (hour, minute)
-        else:
+    text = time_str.strip().upper()
+
+    # "3:30 PM", "10:00 AM"
+    m = re.match(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$', text)
+    if m:
+        hour, minute, period = int(m[1]), int(m[2]), m[3]
+        if hour < 1 or hour > 12 or minute > 59:
             return None
-    
-    # Try 12-hour format with AM/PM and minutes: "3:30 PM", "9:45 AM"
-    match_12h_ampm_colon = re.match(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$', time_str_upper)
-    if match_12h_ampm_colon:
-        hour = int(match_12h_ampm_colon.group(1))
-        minute = int(match_12h_ampm_colon.group(2))
-        period = match_12h_ampm_colon.group(3)
-        # Convert to 24-hour format
         if period == 'PM' and hour != 12:
             hour += 12
         elif period == 'AM' and hour == 12:
             hour = 0
         return (hour, minute)
-    
-    # Try 12-hour format with AM/PM: "10 AM", "9 PM"
-    match_12h_ampm = re.match(r'^(\d{1,2})\s*(AM|PM)$', time_str_upper)
-    if match_12h_ampm:
-        hour = int(match_12h_ampm.group(1))
-        period = match_12h_ampm.group(2)
-        # Convert to 24-hour format
+
+    # "10 AM", "9PM"
+    m = re.match(r'^(\d{1,2})\s*(AM|PM)$', text)
+    if m:
+        hour, period = int(m[1]), m[2]
+        if hour < 1 or hour > 12:
+            return None
         if period == 'PM' and hour != 12:
             hour += 12
         elif period == 'AM' and hour == 12:
             hour = 0
         return (hour, 0)
-    
-    # Try 12-hour format with am/pm lowercase: "9am", "11pm"
-    match_12h_lower = re.match(r'^(\d{1,2})\s*(am|pm)$', time_str)
-    if match_12h_lower:
-        hour = int(match_12h_lower.group(1))
-        period = match_12h_lower.group(2).upper()
-        # Convert to 24-hour format
-        if period == 'PM' and hour != 12:
-            hour += 12
-        elif period == 'AM' and hour == 12:
-            hour = 0
+
+    # "22:00", "10:30"
+    m = re.match(r'^(\d{1,2}):(\d{2})$', text)
+    if m:
+        hour, minute = int(m[1]), int(m[2])
+        if hour > 23 or minute > 59:
+            return None
+        return (hour, minute)
+
+    # "10", "22" (bare hour, 24-hour format)
+    m = re.match(r'^(\d{1,2})$', text)
+    if m:
+        hour = int(m[1])
+        if hour > 23:
+            return None
         return (hour, 0)
-    
-    # Try 24-hour format without minutes: "10", "22"
-    match_24h_simple = re.match(r'^(\d{1,2})$', time_str_upper)
-    if match_24h_simple:
-        hour = int(match_24h_simple.group(1))
-        return (hour, 0)
-    
-    # Try 12-hour format without minutes: "9 AM", "11 PM"
-    match_12h_simple = re.match(r'^(\d{1,2})\s*(AM|PM)$', time_str_upper)
-    if match_12h_simple:
-        hour = int(match_12h_simple.group(1))
-        period = match_12h_simple.group(2)
-        # Convert to 24-hour format
-        if period == 'PM' and hour != 12:
-            hour += 12
-        elif period == 'AM' and hour == 12:
-            hour = 0
-        return (hour, 0)
-    
-    # Try lowercase 12-hour without minutes: "9 am", "11 pm"
-    match_12h_lower_simple = re.match(r'^(\d{1,2})\s*(am|pm)$', time_str)
-    if match_12h_lower_simple:
-        hour = int(match_12h_lower_simple.group(1))
-        period = match_12h_lower_simple.group(2).upper()
-        # Convert to 24-hour format
-        if period == 'PM' and hour != 12:
-            hour += 12
-        elif period == 'AM' and hour == 12:
-            hour = 0
-        return (hour, 0)
-    
+
     return None
 
+
 def format_time_for_display(hour, minute):
-    """Format time as 12-hour or 24-hour based on hour value."""
-    # Handle 24:00 as midnight (special case)
+    """Format (hour, minute) as human-readable 12-hour time."""
     if hour == 24:
-        display_hour = 12
-        period = "AM"
-    else:
-        # Convert to 12-hour format
-        display_hour = hour % 12
-        if display_hour == 0:
-            display_hour = 12
-        period = "AM" if hour < 12 else "PM"
-    
+        hour = 0
+    display_hour = hour % 12 or 12
+    period = "AM" if hour < 12 else "PM"
     if minute == 0:
-        return f"{display_hour:d} {period}"
-    else:
-        return f"{display_hour:d}:{minute:02d} {period}"
+        return f"{display_hour} {period}"
+    return f"{display_hour}:{minute:02d} {period}"
+
 
 def calculate_ping_deadline_time(preferred_hour, preferred_minute, hours_later):
     """
-    Calculate what time it will be X hours after a ping.
-    Returns datetime object (not formatted string).
+    Calculate the deadline datetime for today's ping.
+    Returns a datetime object for today at preferred_time + hours_later.
     """
     now = datetime.now()
-    # Create a datetime for today at the preferred time
-    today_at_time = datetime(now.year, now.month, now.day, preferred_hour, preferred_minute)
-    
-    # If that time has already passed, use tomorrow
-    if today_at_time < now:
-        today_at_time = today_at_time + timedelta(days=1)
-    
-    deadline = today_at_time + timedelta(hours=hours_later)
-    return deadline
+    ping_time = now.replace(hour=preferred_hour, minute=preferred_minute,
+                            second=0, microsecond=0)
+    return ping_time + timedelta(hours=hours_later)
