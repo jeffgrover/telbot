@@ -11,9 +11,10 @@ logger = logging.getLogger(__name__)
 # State constants for the setup conversation
 STATE_NONE = 0
 STATE_ASKED_ROLE = 1
-STATE_ASKED_TIME = 2
-STATE_ASKED_HOURS = 3
-STATE_ASKED_NOTIFY = 4
+STATE_ASKED_BUDDY_FOR = 2
+STATE_ASKED_TIME = 3
+STATE_ASKED_HOURS = 4
+STATE_ASKED_NOTIFY = 5
 
 # In-memory state tracking (per user_id)
 user_state = {}

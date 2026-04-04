@@ -18,6 +18,7 @@ def init_db():
                 preferred_time TEXT,
                 response_hours INTEGER,
                 notify_user TEXT,
+                buddy_for TEXT,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -32,6 +33,11 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
         """)
+        # Migration: add buddy_for column to existing databases
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN buddy_for TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
 
 def check_integrity():
@@ -109,12 +115,12 @@ def save_user_preferences(user_id, username, preferred_time, response_hours, not
         )
 
 
-def save_buddy_registration(user_id, username):
+def save_buddy_registration(user_id, username, buddy_for):
     """Register a user as a buddy contact only (no ping schedule)."""
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO users (user_id, username) VALUES (?, ?)",
-            [user_id, username],
+            "INSERT OR REPLACE INTO users (user_id, username, buddy_for) VALUES (?, ?, ?)",
+            [user_id, username, buddy_for],
         )
 
 
@@ -203,3 +209,24 @@ def get_user_by_username(username):
         )
         row = cursor.fetchone()
         return row[0] if row else None
+
+
+def get_verified_buddy_id(buddy_username, user_username):
+    """Look up buddy's user_id, verifying they registered for this user.
+
+    For buddy-only users (buddy_for is set), buddy_for must match user_username.
+    For full-setup users (buddy_for is NULL), no extra check needed.
+    Returns user_id or None.
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "SELECT user_id, buddy_for FROM users WHERE LOWER(username) = LOWER(?)",
+            [buddy_username],
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        buddy_id, buddy_for = row
+        if buddy_for and buddy_for.lower() != user_username.lower():
+            return None
+        return buddy_id

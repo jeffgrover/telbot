@@ -57,6 +57,9 @@ def make_context():
     """Build a mock context with bot and job_queue."""
     ctx = MagicMock()
     ctx.bot.send_message = AsyncMock()
+    bot_me = MagicMock()
+    bot_me.username = 'test_ping_bot'
+    ctx.bot.get_me = AsyncMock(return_value=bot_me)
     ctx.job_queue.run_once = MagicMock()
     return ctx
 
@@ -119,8 +122,13 @@ async def test_buddy_only_registration():
 
     u1 = make_update(99, 'bob', '2')
     await handle_message(u1, ctx)
-    reply = last_reply(u1)
+    assert 'who are you a buddy for' in last_reply(u1).lower()
+
+    u2 = make_update(99, 'bob', '@alice')
+    await handle_message(u2, ctx)
+    reply = last_reply(u2)
     assert 'buddy contact' in reply.lower()
+    assert '@alice' in reply
 
     # Verify database has the user but no ping schedule
     prefs = get_user_preferences(99)

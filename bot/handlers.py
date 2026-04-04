@@ -5,13 +5,13 @@ from telegram.ext import ContextTypes
 
 from bot.config import (
     logger, user_state, user_preferences, test_state,
-    STATE_NONE, STATE_ASKED_ROLE, STATE_ASKED_TIME, STATE_ASKED_HOURS,
-    STATE_ASKED_NOTIFY,
+    STATE_NONE, STATE_ASKED_ROLE, STATE_ASKED_BUDDY_FOR, STATE_ASKED_TIME,
+    STATE_ASKED_HOURS, STATE_ASKED_NOTIFY,
 )
 from database import (
     get_user_preferences, save_user_preferences, save_buddy_registration,
     record_ping, has_responded_today, get_all_users_with_ping_preferences,
-    get_latest_unanswered_ping, get_user_by_username,
+    get_latest_unanswered_ping, get_user_by_username, get_verified_buddy_id,
 )
 from time_utils import parse_time_input, format_time_for_display
 
@@ -61,9 +61,9 @@ async def send_ping(context: ContextTypes.DEFAULT_TYPE):
         if now <= deadline:
             continue
 
-        buddy_id = get_user_by_username(notify_user)
+        buddy_id = get_verified_buddy_id(notify_user, username)
         if not buddy_id:
-            logger.warning(f"Buddy @{notify_user} not registered with bot")
+            logger.warning(f"Buddy @{notify_user} not registered or not verified for {username}")
             continue
         try:
             display_time = format_time_for_display(pref_hour, pref_minute)
@@ -196,14 +196,27 @@ async def handle_message(update, context):
         if choice in ('1', 'checkin', 'check-in', 'check in', 'ping'):
             await _ask_time_question(update, user_id, username)
         elif choice in ('2', 'buddy'):
-            save_buddy_registration(user_id, username)
             await update.message.reply_text(
-                f"You're registered as a buddy contact, {username}!\n"
-                "You'll receive alerts if someone lists you as their buddy."
+                "Who are you a buddy for?\n"
+                "Enter their Telegram username (with or without @):"
             )
-            user_state.pop(user_id, None)
+            user_state[user_id] = STATE_ASKED_BUDDY_FOR
         else:
             await update.message.reply_text("Please reply 1 for daily check-ins or 2 for buddy only.")
+        return
+
+    # Setup flow: waiting for buddy-for username
+    if current_state == STATE_ASKED_BUDDY_FOR:
+        buddy_for = text.strip().lstrip('@')
+        if not buddy_for:
+            await update.message.reply_text("Please enter a valid username.")
+            return
+        save_buddy_registration(user_id, username, buddy_for)
+        await update.message.reply_text(
+            f"You're registered as a buddy contact for @{buddy_for}!\n"
+            "You'll receive alerts if they don't respond to their daily check-in."
+        )
+        user_state.pop(user_id, None)
         return
 
     # Setup flow: waiting for preferred time
@@ -262,13 +275,23 @@ async def handle_message(update, context):
         record_ping(user_id, datetime.now().date().isoformat(),
                     response_received=datetime.now())
 
-        await update.message.reply_text(
+        msg = (
             f"Ping configured!\n\n"
             f"- Daily ping time: {display}\n"
             f"- Response window: {hours} hours\n"
             f"- Buddy contact: @{buddy}\n\n"
-            f"Your ping is now active!"
         )
+        buddy_id = get_user_by_username(buddy)
+        if buddy_id:
+            msg += "Your ping is now active!"
+        else:
+            bot_name = (await context.bot.get_me()).username
+            msg += (
+                f"Note: @{buddy} hasn't registered with this bot yet. "
+                f"They'll need to start @{bot_name} on Telegram and "
+                f"register as your buddy before notifications can reach them."
+            )
+        await update.message.reply_text(msg)
         user_state.pop(user_id, None)
         user_preferences.pop(user_id, None)
 
