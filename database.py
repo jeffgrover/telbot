@@ -115,11 +115,25 @@ def get_all_users_with_ping_preferences():
         return cursor.fetchall()
 
 
-def get_user_by_username(username):
-    """Look up a user's ID by their Telegram username. Returns user_id or None."""
+def get_latest_unanswered_ping(user_id):
+    """Get the most recent ping with no response and no buddy notification."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
-            "SELECT user_id FROM users WHERE username = ?", [username]
+            "SELECT check_date, prompt_sent, response_received, notified_contact "
+            "FROM wellness_checks "
+            "WHERE user_id = ? AND prompt_sent IS NOT NULL "
+            "AND response_received IS NULL AND notified_contact IS NULL "
+            "ORDER BY check_date DESC LIMIT 1",
+            [user_id],
+        )
+        return cursor.fetchone()
+
+
+def get_user_by_username(username):
+    """Look up a user's ID by their Telegram username (case-insensitive)."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "SELECT user_id FROM users WHERE LOWER(username) = LOWER(?)", [username]
         )
         row = cursor.fetchone()
         return row[0] if row else None

@@ -1,6 +1,6 @@
 """Message and command handlers for the Telegram Ping Bot."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram.ext import ContextTypes
 
 from bot.config import (
@@ -10,9 +10,9 @@ from bot.config import (
 from database import (
     get_user_preferences, save_user_preferences, record_ping,
     has_responded_today, get_all_users_with_ping_preferences,
-    get_todays_ping, get_user_by_username,
+    get_latest_unanswered_ping, get_user_by_username,
 )
-from time_utils import parse_time_input, format_time_for_display, calculate_ping_deadline_time
+from time_utils import parse_time_input, format_time_for_display
 
 
 # ---------------------------------------------------------------------------
@@ -50,11 +50,11 @@ async def send_ping(context: ContextTypes.DEFAULT_TYPE):
         # Check for missed responses past the deadline
         if not notify_user:
             continue
-        record = get_todays_ping(user_id)
-        if not record or not record[1] or record[2] or record[3]:
-            # No ping sent today, or already responded, or buddy already notified
+        record = get_latest_unanswered_ping(user_id)
+        if not record:
             continue
-        deadline = calculate_ping_deadline_time(pref_hour, pref_minute, response_hours)
+        ping_sent_time = datetime.fromisoformat(record[1])
+        deadline = ping_sent_time + timedelta(hours=response_hours)
         if now <= deadline:
             continue
 
