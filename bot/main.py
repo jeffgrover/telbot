@@ -12,7 +12,7 @@ from bot.handlers import (
     handle_message,
     send_ping,
 )
-from database import init_db
+from database import init_db, check_integrity
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -29,6 +29,7 @@ def main():
         return
 
     init_db()
+    check_integrity()
 
     application = Application.builder().token(token).build()
 

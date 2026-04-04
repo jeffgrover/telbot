@@ -1,6 +1,9 @@
+import logging
 import sqlite3
 from datetime import date
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = Path("bot_database.sqlite")
 
@@ -29,6 +32,60 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
         """)
+
+
+def check_integrity():
+    """Log database status and flag any issues at startup."""
+    db_exists = DB_PATH.exists()
+    logger.info(f"Database path: {DB_PATH.resolve()}")
+    if not db_exists:
+        logger.info("No existing database — will be created fresh")
+        return
+
+    with sqlite3.connect(DB_PATH) as conn:
+        users = conn.execute(
+            "SELECT user_id, username, preferred_time, response_hours, notify_user "
+            "FROM users"
+        ).fetchall()
+
+        if not users:
+            logger.info("No users configured")
+            return
+
+        logger.info(f"Configured users: {len(users)}")
+        for user_id, username, pref_time, hours, buddy in users:
+            buddy_str = f", buddy=@{buddy}" if buddy else ""
+            logger.info(f"  {username} (id={user_id}): ping={pref_time}, "
+                        f"window={hours}h{buddy_str}")
+
+            # Flag issues
+            if buddy:
+                buddy_id = conn.execute(
+                    "SELECT user_id FROM users WHERE LOWER(username) = LOWER(?)",
+                    [buddy],
+                ).fetchone()
+                if not buddy_id:
+                    logger.warning(f"  ^ Buddy @{buddy} is NOT registered with the bot")
+
+            if not pref_time or ':' not in pref_time:
+                logger.warning(f"  ^ Invalid preferred_time format: {pref_time!r}")
+
+        # Report recent wellness checks
+        recent = conn.execute(
+            "SELECT w.check_date, u.username, w.prompt_sent, "
+            "w.response_received, w.notified_contact "
+            "FROM wellness_checks w JOIN users u ON w.user_id = u.user_id "
+            "ORDER BY w.check_date DESC, w.id DESC LIMIT 5"
+        ).fetchall()
+        if recent:
+            logger.info("Recent wellness checks:")
+            for check_date, username, sent, responded, notified in recent:
+                parts = [f"sent={sent}" if sent else "not sent"]
+                if responded:
+                    parts.append(f"responded={responded}")
+                if notified:
+                    parts.append(f"buddy_notified={notified}")
+                logger.info(f"  {check_date} {username}: {', '.join(parts)}")
 
 
 def get_user_preferences(user_id):
