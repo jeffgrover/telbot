@@ -17,3 +17,4 @@ STATE_ASKED_NOTIFY = 3
 # In-memory state tracking (per user_id)
 user_state = {}
 user_preferences = {}
+test_state = {}  # {user_id: {'ping_sent': True, 'responded': False}}

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from telegram.ext import ContextTypes
 
 from bot.config import (
-    logger, user_state, user_preferences,
+    logger, user_state, user_preferences, test_state,
     STATE_NONE, STATE_ASKED_TIME, STATE_ASKED_HOURS, STATE_ASKED_NOTIFY,
 )
 from database import (
@@ -119,16 +119,24 @@ async def handle_test_command(update, context):
         await update.message.reply_text("Please set up your ping first with /start")
         return
 
+    # Cancel any previous test jobs for this user
+    job_name = f"test_{user_id}"
+    for job in context.job_queue.get_jobs_by_name(job_name):
+        job.schedule_removal()
+
+    # Reset test state
+    test_state[user_id] = {'ping_sent': False, 'responded': False}
+
     await update.message.reply_text(
         "Test started! I'll send a test ping in 1 minute "
         "and check for your response after 2 minutes."
     )
     context.job_queue.run_once(
-        _send_test_ping, 60,
+        _send_test_ping, 60, name=job_name,
         data={'user_id': user_id, 'username': username},
     )
     context.job_queue.run_once(
-        _check_test_response, 120,
+        _check_test_response, 120, name=job_name,
         data={'user_id': user_id, 'username': username},
     )
 
@@ -148,6 +156,9 @@ async def handle_message(update, context):
 
     # Returning user who already completed setup
     if current_state == STATE_NONE and db_prefs:
+        # If a test ping is active, mark the test as responded
+        if user_id in test_state and test_state[user_id]['ping_sent']:
+            test_state[user_id]['responded'] = True
         record_ping(user_id, datetime.now().date().isoformat(),
                     response_received=datetime.now())
         preferred_time, response_hours, notify_user = db_prefs
@@ -270,13 +281,14 @@ async def _show_status(update, username, db_prefs):
 async def _send_test_ping(context: ContextTypes.DEFAULT_TYPE):
     """Job callback: send a test ping."""
     data = context.job.data
+    user_id = data['user_id']
     try:
         await context.bot.send_message(
-            chat_id=data['user_id'],
+            chat_id=user_id,
             text="TEST PING: Please reply to confirm the system works.",
         )
-        record_ping(data['user_id'], datetime.now().date().isoformat(),
-                    ping_sent=datetime.now())
+        if user_id in test_state:
+            test_state[user_id]['ping_sent'] = True
     except Exception as e:
         logger.error(f"Failed to send test ping: {e}")
 
@@ -284,12 +296,13 @@ async def _send_test_ping(context: ContextTypes.DEFAULT_TYPE):
 async def _check_test_response(context: ContextTypes.DEFAULT_TYPE):
     """Job callback: check if the user responded to the test ping."""
     data = context.job.data
-    responded = has_responded_today(data['user_id'])
+    user_id = data['user_id']
+    state = test_state.pop(user_id, {})
     try:
-        if responded:
+        if state.get('responded'):
             msg = "Test complete! You responded successfully. The system is working."
         else:
             msg = "Test complete: No response detected. Check your notifications."
-        await context.bot.send_message(chat_id=data['user_id'], text=msg)
+        await context.bot.send_message(chat_id=user_id, text=msg)
     except Exception as e:
         logger.error(f"Failed to send test results: {e}")

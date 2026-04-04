@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from database import init_db, save_user_preferences, record_ping, get_user_preferences, has_responded_today
-from bot.config import user_state, user_preferences
+from bot.config import user_state, user_preferences, test_state
 from bot.handlers import (
     handle_start_command,
     handle_setup_command,
@@ -33,6 +33,7 @@ def clean_state():
     init_db()
     user_state.clear()
     user_preferences.clear()
+    test_state.clear()
     yield
     if os.path.exists('bot_database.sqlite'):
         os.remove('bot_database.sqlite')
@@ -162,6 +163,7 @@ async def test_test_command_schedules_jobs():
     """/test should schedule two jobs (ping and check)."""
     save_user_preferences(42, 'alice', '21:00', 3, 'bob')
     ctx = make_context()
+    ctx.job_queue.get_jobs_by_name = MagicMock(return_value=[])
 
     u = make_update(42, 'alice', '/test')
     await handle_test_command(u, ctx)
@@ -182,30 +184,35 @@ async def test_test_command_requires_setup():
 @pytest.mark.asyncio
 async def test_test_ping_callback_sends_message():
     """The _send_test_ping job callback should message the user."""
+    test_state[42] = {'ping_sent': False, 'responded': False}
     ctx = make_context()
     ctx.job.data = {'user_id': 42, 'username': 'alice'}
     await _send_test_ping(ctx)
     ctx.bot.send_message.assert_called_once()
     assert 'TEST PING' in ctx.bot.send_message.call_args[1]['text']
+    assert test_state[42]['ping_sent'] is True
 
 
 @pytest.mark.asyncio
 async def test_test_check_callback_success():
     """_check_test_response reports success when user has responded."""
-    record_ping(42, date.today().isoformat(), response_received=datetime.now())
+    test_state[42] = {'ping_sent': True, 'responded': True}
     ctx = make_context()
     ctx.job.data = {'user_id': 42, 'username': 'alice'}
     await _check_test_response(ctx)
     assert 'successfully' in ctx.bot.send_message.call_args[1]['text'].lower()
+    assert 42 not in test_state  # cleaned up
 
 
 @pytest.mark.asyncio
 async def test_test_check_callback_failure():
     """_check_test_response reports failure when user hasn't responded."""
+    test_state[42] = {'ping_sent': True, 'responded': False}
     ctx = make_context()
     ctx.job.data = {'user_id': 42, 'username': 'alice'}
     await _check_test_response(ctx)
     assert 'no response' in ctx.bot.send_message.call_args[1]['text'].lower()
+    assert 42 not in test_state  # cleaned up
 
 
 # -- send_ping periodic job ---------------------------------------------------
