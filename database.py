@@ -50,7 +50,7 @@ def check_integrity():
 
     with sqlite3.connect(DB_PATH) as conn:
         users = conn.execute(
-            "SELECT user_id, username, preferred_time, response_hours, notify_user "
+            "SELECT user_id, username, preferred_time, response_hours, notify_user, buddy_for "
             "FROM users"
         ).fetchall()
 
@@ -59,7 +59,13 @@ def check_integrity():
             return
 
         logger.info(f"Configured users: {len(users)}")
-        for user_id, username, pref_time, hours, buddy in users:
+        for user_id, username, pref_time, hours, buddy, buddy_for in users:
+            if not pref_time:
+                # Buddy-only user
+                buddy_for_str = f" for @{buddy_for}" if buddy_for else ""
+                logger.info(f"  {username} (id={user_id}): buddy-only{buddy_for_str}")
+                continue
+
             buddy_str = f", buddy=@{buddy}" if buddy else ""
             logger.info(f"  {username} (id={user_id}): ping={pref_time}, "
                         f"window={hours}h{buddy_str}")
@@ -73,7 +79,7 @@ def check_integrity():
                 if not buddy_id:
                     logger.warning(f"  ^ Buddy @{buddy} is NOT registered with the bot")
 
-            if not pref_time or ':' not in pref_time:
+            if ':' not in pref_time:
                 logger.warning(f"  ^ Invalid preferred_time format: {pref_time!r}")
 
         # Report recent wellness checks
