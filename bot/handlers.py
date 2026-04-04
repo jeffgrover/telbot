@@ -5,11 +5,12 @@ from telegram.ext import ContextTypes
 
 from bot.config import (
     logger, user_state, user_preferences, test_state,
-    STATE_NONE, STATE_ASKED_TIME, STATE_ASKED_HOURS, STATE_ASKED_NOTIFY,
+    STATE_NONE, STATE_ASKED_ROLE, STATE_ASKED_TIME, STATE_ASKED_HOURS,
+    STATE_ASKED_NOTIFY,
 )
 from database import (
-    get_user_preferences, save_user_preferences, record_ping,
-    has_responded_today, get_all_users_with_ping_preferences,
+    get_user_preferences, save_user_preferences, save_buddy_registration,
+    record_ping, has_responded_today, get_all_users_with_ping_preferences,
     get_latest_unanswered_ping, get_user_by_username,
 )
 from time_utils import parse_time_input, format_time_for_display
@@ -26,6 +27,8 @@ async def send_ping(context: ContextTypes.DEFAULT_TYPE):
 
     users = get_all_users_with_ping_preferences()
     for user_id, username, preferred_time, response_hours, notify_user in users:
+        if not preferred_time:
+            continue
         try:
             pref_hour, pref_minute = map(int, preferred_time.split(':'))
         except ValueError:
@@ -91,7 +94,7 @@ async def handle_start_command(update, context):
     if db_prefs:
         await _show_status(update, username, db_prefs)
     else:
-        await _ask_time_question(update, user_id, username)
+        await _ask_role_question(update, user_id, username)
 
 
 async def handle_setup_command(update, context):
@@ -106,8 +109,8 @@ async def handle_setup_command(update, context):
     with sqlite3.connect('bot_database.sqlite') as conn:
         conn.execute("DELETE FROM users WHERE user_id = ?", [user_id])
 
-    await update.message.reply_text("Setup reset. Let's reconfigure your ping.\n")
-    await _ask_time_question(update, user_id, username)
+    await update.message.reply_text("Setup reset. Let's start over.\n")
+    await _ask_role_question(update, user_id, username)
 
 
 async def handle_test_command(update, context):
@@ -156,12 +159,19 @@ async def handle_message(update, context):
 
     # Returning user who already completed setup
     if current_state == STATE_NONE and db_prefs:
+        preferred_time, response_hours, notify_user = db_prefs
+        # Buddy-only user — no check-in needed
+        if not preferred_time:
+            await update.message.reply_text(
+                f"Hi {username}! You're registered as a buddy contact.\n"
+                "Use /setup to set up daily check-ins instead."
+            )
+            return
         # If a test ping is active, mark the test as responded
         if user_id in test_state and test_state[user_id]['ping_sent']:
             test_state[user_id]['responded'] = True
         record_ping(user_id, datetime.now().date().isoformat(),
                     response_received=datetime.now())
-        preferred_time, response_hours, notify_user = db_prefs
         pref_hour, pref_minute = map(int, preferred_time.split(':'))
         display_time = format_time_for_display(pref_hour, pref_minute)
         msg = (
@@ -177,7 +187,23 @@ async def handle_message(update, context):
 
     # New user, no prefs - start setup
     if current_state == STATE_NONE:
-        await _ask_time_question(update, user_id, username)
+        await _ask_role_question(update, user_id, username)
+        return
+
+    # Setup flow: waiting for role choice
+    if current_state == STATE_ASKED_ROLE:
+        choice = text.strip().lower()
+        if choice in ('1', 'checkin', 'check-in', 'check in', 'ping'):
+            await _ask_time_question(update, user_id, username)
+        elif choice in ('2', 'buddy'):
+            save_buddy_registration(user_id, username)
+            await update.message.reply_text(
+                f"You're registered as a buddy contact, {username}!\n"
+                "You'll receive alerts if someone lists you as their buddy."
+            )
+            user_state.pop(user_id, None)
+        else:
+            await update.message.reply_text("Please reply 1 for daily check-ins or 2 for buddy only.")
         return
 
     # Setup flow: waiting for preferred time
@@ -251,11 +277,20 @@ async def handle_message(update, context):
 # Helpers
 # ---------------------------------------------------------------------------
 
+async def _ask_role_question(update, user_id, username):
+    """Ask the user whether they want check-ins or buddy-only registration."""
+    await update.message.reply_text(
+        f"Hi {username}! Welcome to Ping Bot!\n\n"
+        "How would you like to use the bot?\n"
+        "1. Daily check-ins (get pinged and set up a buddy)\n"
+        "2. Buddy only (just receive alerts for someone else)"
+    )
+    user_state[user_id] = STATE_ASKED_ROLE
+
+
 async def _ask_time_question(update, user_id, username):
     """Send the first setup question."""
     await update.message.reply_text(
-        f"Hi {username}!\n\n"
-        "Welcome to Ping Bot! I'll ask three questions to set up your daily check-in.\n\n"
         "What time should I send your daily ping?\n"
         "Examples: 10 AM, 9pm, 22:00, 3:30 PM"
     )
@@ -265,6 +300,12 @@ async def _ask_time_question(update, user_id, username):
 async def _show_status(update, username, db_prefs):
     """Show current ping configuration."""
     preferred_time, response_hours, notify_user = db_prefs
+    if not preferred_time:
+        await update.message.reply_text(
+            f"Welcome back, {username}! You're registered as a buddy contact.\n\n"
+            "Use /setup to set up daily check-ins instead."
+        )
+        return
     pref_hour, pref_minute = map(int, preferred_time.split(':'))
     display_time = format_time_for_display(pref_hour, pref_minute)
     msg = (

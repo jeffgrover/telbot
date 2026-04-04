@@ -109,6 +109,15 @@ def save_user_preferences(user_id, username, preferred_time, response_hours, not
         )
 
 
+def save_buddy_registration(user_id, username):
+    """Register a user as a buddy contact only (no ping schedule)."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO users (user_id, username) VALUES (?, ?)",
+            [user_id, username],
+        )
+
+
 def record_ping(user_id, ping_date, ping_sent=None, response_received=None, buddy_notified=None):
     """Record or update a ping event. One record per user per day (upsert)."""
     sent_str = ping_sent.isoformat() if ping_sent else None

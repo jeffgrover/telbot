@@ -10,7 +10,10 @@ from datetime import datetime, date, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from database import init_db, save_user_preferences, record_ping, get_user_preferences, has_responded_today
+from database import (
+    init_db, save_user_preferences, save_buddy_registration,
+    record_ping, get_user_preferences, has_responded_today,
+)
 from bot.config import user_state, user_preferences, test_state
 from bot.handlers import (
     handle_start_command,
@@ -67,11 +70,16 @@ def last_reply(update):
 
 @pytest.mark.asyncio
 async def test_full_setup_conversation():
-    """Walk through the three-question setup as a new user."""
+    """Walk through the full setup as a new user choosing daily check-ins."""
     ctx = make_context()
 
-    # First message from a new user triggers setup
-    u1 = make_update(42, 'alice', 'hello')
+    # First message from a new user triggers role question
+    u0 = make_update(42, 'alice', 'hello')
+    await handle_message(u0, ctx)
+    assert 'how would you like' in last_reply(u0).lower()
+
+    # Choose daily check-ins
+    u1 = make_update(42, 'alice', '1')
     await handle_message(u1, ctx)
     assert 'What time' in last_reply(u1)
 
@@ -100,6 +108,26 @@ async def test_full_setup_conversation():
     assert has_responded_today(42)
 
 
+@pytest.mark.asyncio
+async def test_buddy_only_registration():
+    """A new user can register as buddy-only without setting up pings."""
+    ctx = make_context()
+
+    u0 = make_update(99, 'bob', 'hello')
+    await handle_message(u0, ctx)
+    assert 'how would you like' in last_reply(u0).lower()
+
+    u1 = make_update(99, 'bob', '2')
+    await handle_message(u1, ctx)
+    reply = last_reply(u1)
+    assert 'buddy contact' in reply.lower()
+
+    # Verify database has the user but no ping schedule
+    prefs = get_user_preferences(99)
+    assert prefs is not None
+    assert prefs[0] is None  # no preferred_time
+
+
 # -- Returning user ----------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -121,10 +149,10 @@ async def test_returning_user_gets_status():
 
 @pytest.mark.asyncio
 async def test_start_new_user():
-    """/start for a new user begins setup."""
+    """/start for a new user shows role question."""
     u = make_update(42, 'alice', '/start')
     await handle_start_command(u, make_context())
-    assert 'What time' in last_reply(u)
+    assert 'how would you like' in last_reply(u).lower()
 
 
 @pytest.mark.asyncio
@@ -150,10 +178,14 @@ async def test_setup_resets_and_restarts():
     await handle_setup_command(u1, ctx)
     assert get_user_preferences(42) is None
 
-    # Should now be in setup flow — answer the time question
-    u2 = make_update(42, 'alice', '10 AM')
+    # Should now be in role question — choose check-ins, then answer time
+    u2 = make_update(42, 'alice', '1')
     await handle_message(u2, ctx)
-    assert '10 AM' in last_reply(u2)
+    assert 'What time' in last_reply(u2)
+
+    u3 = make_update(42, 'alice', '10 AM')
+    await handle_message(u3, ctx)
+    assert '10 AM' in last_reply(u3)
 
 
 # -- /test command ------------------------------------------------------------
@@ -323,7 +355,9 @@ async def test_bad_time_reprompts():
     """Invalid time input should re-ask, not crash."""
     ctx = make_context()
 
-    u1 = make_update(42, 'alice', 'hi')
+    u0 = make_update(42, 'alice', 'hi')
+    await handle_message(u0, ctx)
+    u1 = make_update(42, 'alice', '1')  # choose check-ins
     await handle_message(u1, ctx)
 
     u2 = make_update(42, 'alice', 'banana')
@@ -341,7 +375,9 @@ async def test_bad_hours_reprompts():
     """Invalid hours input should re-ask."""
     ctx = make_context()
 
-    u1 = make_update(42, 'alice', 'hi')
+    u0 = make_update(42, 'alice', 'hi')
+    await handle_message(u0, ctx)
+    u1 = make_update(42, 'alice', '1')  # choose check-ins
     await handle_message(u1, ctx)
     u2 = make_update(42, 'alice', '9 PM')
     await handle_message(u2, ctx)
